@@ -1,0 +1,2615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>待办清单</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27><rect width=%2764%27 height=%2764%27 rx=%2712%27 fill=%27%2310b981%27/><rect x=%2714%27 y=%2722%27 width=%2736%27 height=%2730%27 rx=%274%27 fill=%27white%27/><rect x=%2720%27 y=%2728%27 width=%2724%27 height=%274%27 rx=%272%27 fill=%27%2310b981%27/><rect x=%2720%27 y=%2736%27 width=%2716%27 height=%274%27 rx=%272%27 fill=%27%2310b981%27/><rect x=%2720%27 y=%2744%27 width=%2720%27 height=%274%27 rx=%272%27 fill=%27%2310b981%27/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --surface: #ffffff;
+      --surface-hover: #f7f8fa;
+      --primary: #0058d4;
+      --primary-light: #e8f0fe;
+      --primary-dark: #0043a8;
+      --accent: #00bf6f;
+      --danger: #d13438;
+      --danger-light: #fde7e9;
+      --text: #1a1a1a;
+      --text-2: #5f5f5f;
+      --text-3: #999999;
+      --border: #e2e2e8;
+      --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 4px 16px rgba(0,0,0,0.05);
+      --shadow-lg: 0 4px 24px rgba(0,0,0,0.12);
+      --radius: 12px;
+      --radius-sm: 8px;
+      --transition: 0.2s ease;
+      --sidebar-w: max(240px, min(22vw, 440px));
+      --sidebar-min-w: 220px;
+      --sidebar-max-w: 460px;
+    }
+
+    [data-theme="dark"] {
+      --bg: #111114;
+      --surface: #1c1c20;
+      --surface-hover: #252529;
+      --primary: #4da3ff;
+      --primary-light: #1a2d44;
+      --primary-dark: #80bbff;
+      --accent: #00d084;
+      --danger: #ff6b6b;
+      --danger-light: #2a1a1a;
+      --text: #e8e8ed;
+      --text-2: #a0a0a8;
+      --text-3: #606068;
+      --border: #2e2e35;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.25);
+      --shadow-lg: 0 4px 24px rgba(0,0,0,0.5);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background var(--transition), color var(--transition);
+      position: relative;
+      z-index: auto;
+      overflow: visible;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      min-height: 100vh;
+      position: relative;
+      z-index: auto;
+      isolation: isolate;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      position: fixed;
+      top: 0; left: 0;
+      height: 100vh;
+      z-index: 100;
+      transition: transform 0.3s ease;
+    }
+
+    .sidebar-header {
+      padding: 20px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .sidebar-close {
+      display: none;
+      width: 30px; height: 30px;
+      border: none; background: transparent;
+      color: var(--text-2); font-size: 18px;
+      cursor: pointer; border-radius: 6px;
+    }
+
+    /* Category list */
+    .cat-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .cat-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: var(--text-2);
+      transition: all var(--transition);
+      position: relative;
+      user-select: none;
+    }
+
+    .cat-item:hover { background: var(--surface-hover); color: var(--text); }
+
+    .cat-item.active {
+      background: var(--primary-light);
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .cat-item .cat-icon { font-size: 1rem; flex-shrink: 0; }
+    .cat-item .cat-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cat-item .cat-count {
+      font-size: 0.72rem;
+      background: var(--border);
+      color: var(--text-3);
+      padding: 1px 6px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+    .cat-item.active .cat-count { background: var(--primary); color: #fff; }
+
+    /* Category actions — shown on hover */
+    .cat-actions {
+      display: none;
+      gap: 2px;
+      margin-left: auto;
+    }
+    .cat-item:hover .cat-actions { display: flex; }
+    .cat-item:hover .cat-count { display: none; }
+
+    .cat-act-btn {
+      width: 22px; height: 22px;
+      border: none; background: transparent;
+      color: var(--text-3); font-size: 12px;
+      cursor: pointer; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .cat-act-btn:hover { background: var(--border); color: var(--text); }
+    .cat-act-btn.del:hover { background: var(--danger-light); color: var(--danger); }
+    .cat-act-btn.move:hover { background: var(--primary-light); color: var(--primary); }
+    .cat-act-btn.move.disabled { opacity: 0.2; pointer-events: none; cursor: default; }
+
+    /* Order buttons */
+    .cat-order-btns { display: none; gap: 1px; }
+    .cat-item:hover .cat-order-btns { display: flex; }
+
+    /* All category special */
+    .cat-item.cat-all { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .cat-item .cat-order-btns { display: none; gap: 1px; }
+    .cat-item:hover .cat-order-btns { display: flex; }
+    .cat-item:hover .cat-count { display: none; }
+
+    /* Divider */
+    .cat-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 6px 10px;
+    }
+
+    /* Add category */
+    .add-cat-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-3);
+      transition: all var(--transition);
+      border: none; background: transparent;
+      width: 100%;
+      text-align: left;
+    }
+    .add-cat-btn:hover { background: var(--surface-hover); color: var(--primary); }
+
+    /* Sidebar footer */
+    .sidebar-footer {
+      padding: 10px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Sidebar resize handle */
+    .sidebar-resizer {
+      position: absolute;
+      top: 0; right: -5px;
+      width: 10px;
+      height: 100vh;
+      cursor: col-resize;
+      z-index: 101;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .sidebar-resizer::after {
+      content: '';
+      width: 3px;
+      height: 36px;
+      border-radius: 3px;
+      background: var(--border);
+      transition: background 0.15s;
+    }
+    .sidebar-resizer:hover::after,
+    .sidebar-resizer.dragging::after {
+      background: var(--primary);
+      height: 64px;
+    }
+    body.resizing { cursor: col-resize; user-select: none; }
+    body.resizing .sidebar-resizer { pointer-events: auto; }
+    body.resizing .sidebar-resizer::after { background: var(--primary); height: 64px; }
+
+    /* ── Main ── */
+    .main {
+      flex: 1;
+      margin-left: var(--sidebar-w);
+      padding: 28px 32px 80px;
+      max-width: 880px;
+    }
+
+    /* Header */
+    .main-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+
+    .menu-btn {
+      display: none;
+      width: 36px; height: 36px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      color: var(--text-2);
+    }
+
+    .current-cat-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-right { display: flex; align-items: center; gap: 10px; }
+
+    .theme-toggle {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all var(--transition);
+      color: var(--text-2);
+    }
+    .theme-toggle:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Add card */
+    .add-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow);
+      position: relative;
+      z-index: auto;
+    }
+
+    .add-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      position: relative;
+      z-index: auto;
+      overflow: visible;
+    }
+
+    .add-input {
+      flex: 1;
+      height: 52px;
+      padding: 0 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 1rem;
+      font-family: inherit;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .add-input::placeholder { color: var(--text-3); }
+    .add-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+    .add-input.shake { animation: shake 0.35s ease; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+
+    .add-btn {
+      height: 52px; padding: 0 20px;
+      background: var(--primary); color: #fff;
+      border: none; border-radius: var(--radius-sm);
+      font-size: 1rem; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      transition: background var(--transition), transform var(--transition);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .add-btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+    .add-btn:active { transform: translateY(0); }
+
+    /* Category picker button */
+    .cat-picker-btn {
+      height: 52px;
+      padding: 0 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      font-size: 1rem;
+      font-family: inherit;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: border-color 0.2s;
+      min-width: 110px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+      z-index: auto;
+    }
+    .cat-picker-btn:hover { border-color: var(--primary); }
+    .cat-picker-btn .arrow { margin-left: auto; font-size: 10px; color: var(--text-3); }
+    .cat-picker-btn.open { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
+
+    /* Category dropdown list */
+    .cat-picker-list {
+      position: fixed;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-lg);
+      z-index: 100;
+      min-width: 160px;
+      max-height: 260px;
+      overflow-y: auto;
+      display: none;
+      isolation: isolate;
+    }
+    .cat-picker-list.open { display: block; }
+    .cat-picker-item {
+      padding: 9px 14px;
+      font-size: 0.88rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.12s;
+    }
+    .cat-picker-item:hover { background: var(--surface-hover); }
+    .cat-picker-item.selected { background: var(--primary-light); color: var(--primary); font-weight: 600; }
+    .cat-picker-item .check { width: 14px; font-size: 11px; }
+
+    /* Stats */
+    .stats-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      font-size: 0.8rem;
+      color: var(--text-3);
+      padding: 0 2px;
+    }
+    .stats-row .done-count { color: var(--accent); font-weight: 600; }
+
+    /* Section label */
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-3);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 24px 0 10px 2px;
+    }
+
+    /* Todo item */
+    .todo-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .todo-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 13px 14px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      box-shadow: var(--shadow);
+      transition: all 0.25s ease;
+      animation: fadeSlideIn 0.3s ease;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .todo-item:hover {
+      border-color: var(--primary);
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-1px);
+    }
+
+    .todo-item.completed { opacity: 0.5; }
+    .todo-item.completed:hover { opacity: 0.65; transform: none; }
+
+    .todo-item.deleting { animation: fadeOut 0.22s ease forwards; }
+    @keyframes fadeOut {
+      to { opacity: 0; transform: translateX(-20px); }
+    }
+
+    /* Checkbox */
+    .checkbox {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      background: transparent;
+    }
+    .checkbox:hover { border-color: var(--primary); }
+    .checkbox.checked {
+      background: var(--accent); border-color: var(--accent);
+    }
+    .checkbox.checked::after {
+      content: '';
+      width: 5px; height: 9px;
+      border: 2px solid #fff;
+      border-top: none; border-left: none;
+      transform: rotate(45deg) translateY(-1px);
+      display: block;
+    }
+
+    /* Todo body */
+    .todo-body { flex: 1; min-width: 0; }
+
+    .todo-text {
+      font-size: 0.93rem;
+      line-height: 1.5;
+      color: var(--text);
+      word-break: break-word;
+      cursor: pointer;
+    }
+    .todo-item.completed .todo-text {
+      text-decoration: line-through;
+      color: var(--text-3);
+    }
+
+    .modal-btn.cancel { background: var(--surface-hover); color: var(--text-2); }
+    .modal-btn.cancel:hover { background: var(--border); }
+    .modal-btn.primary { background: var(--primary); color: #fff; }
+    .modal-btn.primary:hover { background: var(--primary-dark); }
+
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; }
+    input[type="range"] { -webkit-appearance: none; height: 5px; border-radius: 3px; background: var(--border); outline: none; }
+
+    .todo-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 4px 0 2px;
+      cursor: pointer;
+      padding: 2px 0;
+    }
+    .todo-progress-track {
+      flex: 1;
+      height: 5px;
+      background: var(--border);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .todo-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+    .todo-progress-pct {
+      font-size: 0.78rem;
+      color: var(--accent);
+      font-weight: 600;
+      min-width: 32px;
+      text-align: right;
+    }
+    .todo-progress-add {
+      font-size: 0.78rem;
+      color: var(--text-3);
+      cursor: pointer;
+      padding: 1px 4px;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+    .todo-progress-add:hover { background: var(--border); color: var(--accent); }
+
+    .todo-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .todo-cat-tag {
+      font-size: 0.7rem;
+      color: var(--primary);
+      background: var(--primary-light);
+      padding: 2px 8px;
+      border-radius: 10px;
+      display: inline-flex; align-items: center; gap: 4px;
+      cursor: pointer;
+      transition: all 0.15s;
+      user-select: none;
+      border: none;
+      font-family: inherit;
+    }
+    .todo-cat-tag:hover { background: var(--primary); color: #fff; }
+
+    .todo-meta { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+
+    .todo-date {
+      font-size: 0.72rem;
+      color: var(--text-3);
+    }
+    .today-badge {
+      font-size: 0.68rem;
+      color: #fff;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .period-badge {
+      font-size: 0.68rem;
+      color: #fff;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .period-badge.today { background: linear-gradient(135deg, #f97316, #ea580c); }
+    .period-badge.week  { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+    .period-badge.month { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+
+    /* Todo actions */
+    .todo-actions {
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity var(--transition);
+      flex-shrink: 0;
+    }
+    .todo-item:hover .todo-actions { opacity: 1; }
+
+    .todo-act-btn {
+      width: 26px; height: 26px;
+      border: none; background: transparent;
+      color: var(--text-3); font-size: 13px;
+      cursor: pointer; border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .todo-act-btn:hover { background: var(--border); color: var(--text); }
+    .todo-act-btn.del:hover { background: var(--danger-light); color: var(--danger); }
+    .todo-act-btn.has-note { color: var(--primary); }
+    .todo-act-btn.reminder-action.active { color: var(--primary); }
+    .todo-act-btn.move {
+      font-size: 13px;
+      width: 28px; height: 28px;
+    }
+    .todo-act-btn.move:hover { background: var(--primary-light); color: var(--primary); }
+
+    /* Edit input */
+    .edit-input {
+      width: 100%;
+      border: 1.5px solid var(--primary);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.93rem;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-3);
+    }
+    .empty-state .icon { font-size: 2.6rem; margin-bottom: 12px; opacity: 0.35; }
+    .empty-state p { font-size: 0.95rem; }
+
+    /* Progress */
+    .progress-card {
+      margin: 0 0 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+    }
+    .progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .progress-label { font-size: 0.86rem; color: var(--text-2); font-weight: 600; }
+    .progress-pct { font-size: 0.9rem; color: var(--accent); font-weight: 700; }
+    .progress-subtext { font-size: 0.76rem; color: var(--text-3); margin-bottom: 9px; }
+    .progress-track { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      border-radius: 3px;
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      margin-top: 48px;
+      font-size: 0.75rem;
+      color: var(--text-3);
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 500;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+    .modal-overlay.show { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: var(--shadow-lg);
+      animation: modalIn 0.2s ease;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal-title {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-close {
+      width: 28px; height: 28px;
+      border: none; background: transparent;
+      font-size: 18px; cursor: pointer;
+      color: var(--text-3); border-radius: 6px;
+    }
+    .modal-close:hover { background: var(--border); color: var(--text); }
+
+    /* ── Toggle Switch ── */
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: var(--border); transition: 0.3s; border-radius: 24px; }
+    .slider:before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s; }
+    input:checked + .slider { background: var(--primary); }
+    input:checked + .slider:before { transform: translateX(20px); }
+    .modal-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+    .modal-label { font-size: 0.82rem; color: var(--text-2); font-weight: 500; }
+    .reminder-weekdays { display: flex; gap: 6px; flex-wrap: wrap; }
+    .reminder-day { position: relative; }
+    .reminder-day input { position: absolute; opacity: 0; pointer-events: none; }
+    .reminder-day span { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-2); font-size: 0.8rem; cursor: pointer; user-select: none; transition: all 0.15s; }
+    .reminder-day span:hover { border-color: var(--primary); color: var(--primary); }
+    .reminder-day input:checked + span { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .reminder-help { font-size: 0.74rem; color: var(--text-3); line-height: 1.5; margin-top: 5px; }
+
+    .modal-input {
+      height: 40px;
+      padding: 0 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.9rem;
+      font-family: inherit;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      width: 100%;
+    }
+    .modal-input:focus { border-color: var(--primary); }
+
+
+    .settings-modal {
+      max-width: 760px;
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+    .settings-hint {
+      margin: -6px 0 16px;
+      color: var(--text-3);
+      font-size: 0.78rem;
+      line-height: 1.6;
+    }
+    .settings-section {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      background: var(--bg);
+    }
+    .settings-section-head,
+    .settings-switch-row,
+    .settings-actions-inline,
+    .settings-footer-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .settings-section-head { margin-bottom: 14px; }
+    .settings-section-title { font-weight: 700; color: var(--text); font-size: 0.95rem; }
+    .settings-section-desc { font-size: 0.75rem; color: var(--text-3); line-height: 1.5; margin-top: 2px; }
+    .settings-switch-row {
+      padding: 10px 0 12px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .settings-field { display: flex; flex-direction: column; gap: 6px; }
+    .settings-field-wide { grid-column: 1 / -1; }
+    .settings-field span,
+    .settings-check-field span { font-size: 0.78rem; color: var(--text-2); font-weight: 500; }
+    .settings-check-field {
+      min-height: 40px;
+      padding: 0 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      align-self: end;
+    }
+    .settings-check-field input { width: 16px; height: 16px; accent-color: var(--primary); }
+    .settings-badge {
+      font-size: 0.75rem;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: rgba(255,85,85,0.12);
+      color: #ff5555;
+    }
+    .settings-meta,
+    .settings-result {
+      font-size: 0.75rem;
+      color: var(--text-3);
+      line-height: 1.5;
+    }
+    .settings-meta { margin-top: 10px; }
+    .settings-actions-inline { justify-content: flex-start; margin-top: 12px; flex-wrap: wrap; }
+    .settings-footer-actions { justify-content: flex-end; margin-top: 16px; }
+    .settings-save-result { text-align: right; margin-top: 8px; min-height: 18px; }
+    .modal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    @media (max-width: 720px) {
+      .settings-grid { grid-template-columns: 1fr; }
+      .settings-modal { max-width: 96vw; }
+      .settings-section-head,
+      .settings-switch-row,
+      .settings-footer-actions { align-items: flex-start; }
+      .settings-footer-actions { flex-direction: column-reverse; }
+      .settings-footer-actions .modal-btn { width: 100%; }
+    }
+
+    /* Icon grid */
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      padding: 2px;
+    }
+    .icon-option {
+      width: 36px; height: 36px;
+      border: 1.5px solid transparent;
+      border-radius: 6px;
+      background: var(--bg);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+    }
+    .icon-option:hover { border-color: var(--primary); background: var(--primary-light); }
+    .icon-option.selected { border-color: var(--primary); background: var(--primary-light); }
+
+    .modal-actions { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+    .modal-btn {
+      height: 36px; padding: 0 18px;
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem; font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      transition: all var(--transition);
+      border: none;
+    }
+    .modal-btn.cancel { background: var(--border); color: var(--text-2); }
+    .modal-btn.cancel:hover { background: var(--text-3); color: #fff; }
+    .modal-btn.danger { background: var(--danger); color: #fff; }
+    .modal-btn.danger:hover { opacity: 0.85; }
+    .modal-btn.primary { background: var(--primary); color: #fff; }
+    .modal-btn.primary:hover { background: var(--primary-dark); }
+
+    /* Category move dropdown */
+    .move-dropdown {
+      position: fixed;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-lg);
+      z-index: 50;
+      min-width: 140px;
+      overflow: hidden;
+      display: none;
+    }
+    .move-dropdown.show { display: block; }
+    .move-option {
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      transition: background 0.15s;
+    }
+    .move-option:hover { background: var(--surface-hover); }
+    .move-option.disabled { opacity: 0.4; pointer-events: none; }
+
+    /* Move button wrapper */
+
+
+    /* ── Note Modal ── */
+    .note-modal { max-width: 780px; width: 90vw; display: flex; flex-direction: column; max-height: 85vh; }
+    .note-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .note-tabs { display: flex; gap: 4px; background: var(--bg); border-radius: 8px; padding: 3px; }
+    .note-tab { border: none; background: transparent; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text-2); font-weight: 500; transition: all 0.15s; }
+    .note-tab.active { background: var(--surface); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: 600; }
+    .note-save-status { font-size: 0.75rem; color: var(--text-3); }
+    .note-body { flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); min-height: 280px; scrollbar-width: thin; }
+    .note-editor { display: none; width: 100%; resize: none; padding: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9rem; line-height: 1.7; background: var(--bg); color: var(--text); outline: none; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+    /* data-mode is set on the modal overlay (#noteModal), not the inner panel. */
+    #noteModal[data-mode="preview"] .note-preview-wrap { display: block; }
+    #noteModal[data-mode="preview"] .note-editor { display: none; }
+    #noteModal[data-mode="editor"] .note-preview-wrap { display: none; }
+    #noteModal[data-mode="editor"] .note-editor { display: block; }
+    .note-body.note-preview-wrap { padding: 20px 24px; font-size: 0.95rem; line-height: 1.75; color: var(--text); overflow-wrap: break-word; }
+
+    /* Markdown preview typography */
+    .note-preview-wrap h1, .note-preview-wrap h2, .note-preview-wrap h3, .note-preview-wrap h4 { margin: 1.1em 0 0.5em; line-height: 1.35; font-weight: 700; }
+    .note-preview-wrap h1 { font-size: 1.7em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+    .note-preview-wrap h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+    .note-preview-wrap h3 { font-size: 1.15em; }
+    .note-preview-wrap h4 { font-size: 1em; }
+    .note-preview-wrap p { margin: 0.6em 0; }
+    .note-preview-wrap ul, .note-preview-wrap ol { padding-left: 1.6em; margin: 0.6em 0; }
+    .note-preview-wrap li { margin: 0.25em 0; }
+    .note-preview-wrap blockquote { border-left: 3px solid var(--primary); padding: 2px 14px; margin: 0.8em 0; color: var(--text-2); background: var(--surface-hover); border-radius: 0 6px 6px 0; }
+    .note-preview-wrap code { font-family: ui-monospace, Menlo, Consolas, monospace; background: var(--surface-hover); padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+    .note-preview-wrap pre { background: var(--surface-hover); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 0.8em 0; }
+    .note-preview-wrap pre code { background: none; padding: 0; font-size: 0.85em; }
+    .note-preview-wrap table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+    .note-preview-wrap th, .note-preview-wrap td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+    .note-preview-wrap th { background: var(--surface-hover); font-weight: 600; }
+    .note-preview-wrap a { color: var(--primary); }
+    .note-preview-wrap hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
+    .note-preview-wrap img { max-width: 100%; border-radius: 6px; }
+    .note-preview-wrap input[type="checkbox"] { margin-right: 8px; accent-color: var(--primary); }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .sidebar {
+        transform: translateX(-100%);
+        width: min(260px, 75vw);
+      }
+      .sidebar-resizer { display: none; }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-close { display: flex; align-items: center; justify-content: center; }
+      .main { margin-left: 0; padding: 20px 16px 80px; }
+      .menu-btn { display: flex; align-items: center; justify-content: center; }
+      .current-cat-title { font-size: 1.25rem; }
+      .add-row { flex-wrap: wrap; }
+      .add-input { min-width: 0; }
+      .cat-picker-btn { width: 100%; }
+      .cat-picker-list { position: fixed; top: auto; bottom: 0; left: 0; right: 0; border-radius: 12px 12px 0 0; max-height: 50vh; z-index: 100; isolation: isolate; }
+      .cat-name { max-width: 120px; }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">📋 分类</span>
+      <button class="sidebar-close" onclick="closeSidebar()">✕</button>
+    </div>
+    <div class="cat-list" id="catList"></div>
+    <div class="sidebar-footer">
+      <button class="add-cat-btn" onclick="openAddCatModal()">
+        <span>＋</span> 新增分类
+      </button>
+    </div>
+    <div class="sidebar-resizer" id="sidebarResizer" title="拖动调整宽度"></div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    <div class="main-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="menu-btn" onclick="openSidebar()">☰</button>
+        <div class="current-cat-title" id="currentCatTitle">📋 全部</div>
+      </div>
+      <div class="header-right">
+        <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="theme-toggle" id="settingsBtn" onclick="openSettingsModal()" title="配置中心">⚙️</button>
+      </div>
+    </div>
+
+    <!-- Add card -->
+    <div class="add-card">
+      <div class="add-row">
+        <input class="add-input" type="text" id="todoInput" placeholder="输入待办事项…" maxlength="200" autocomplete="off">
+        <button class="cat-picker-btn" id="catPickerBtn" onclick="toggleCatPicker(event)" type="button">
+          <span id="catPickerLabel">📋 默认</span>
+          <span class="arrow">▼</span>
+        </button>
+        <div class="cat-picker-list" id="catPickerList"></div>
+        <button class="add-btn" onclick="addTodo()">添加</button>
+      </div>
+      <div class="stats-row">
+        <span>已完成 <span class="done-count" id="doneCount">0</span> 项</span>
+        <span>共 <span id="totalCount">0</span> 项</span>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-card" id="progressCard" style="display:none">
+      <div class="progress-header">
+        <span class="progress-label" id="progressLabel">待完成进度</span>
+        <span class="progress-pct" id="progressPct">0%</span>
+      </div>
+      <div class="progress-subtext" id="progressSubtext">剩余 0 项 · 已完成 0 项</div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progressFill"></div>
+      </div>
+    </div>
+
+    <!-- Lists -->
+    <div id="pendingSection">
+      <div class="section-label">待完成</div>
+      <section class="todo-list" id="todoList"></section>
+    </div>
+    <div id="doneSection" style="display:none">
+      <div class="section-label">已完成</div>
+      <section class="todo-list" id="doneList"></section>
+    </div>
+
+    <div class="footer">局域网多端同步 · 数据本地存储</div>
+  </main>
+</div>
+
+<!-- Portal: 移动分类下拉浮层（避免 stacking context 遮挡） -->
+<div id="move-dropdown-portal" style="position:fixed;z-index:100;display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);box-shadow:var(--shadow-lg);min-width:160px;overflow:hidden;isolation:isolate;"></div>
+
+<!-- Category Modal (add/edit) -->
+<div class="modal-overlay" id="catModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="catModalTitle">新增分类</span>
+      <button class="modal-close" onclick="closeCatModal()">✕</button>
+    </div>
+    <div class="modal-row">
+      <label class="modal-label">分类名称</label>
+      <input class="modal-input" type="text" id="catNameInput" placeholder="输入分类名称" maxlength="20">
+    </div>
+    <div class="modal-row">
+      <label class="modal-label">选择图标</label>
+      <div class="icon-grid" id="iconGrid"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeCatModal()">取消</button>
+      <button class="modal-btn danger" id="delCatBtn" style="display:none" onclick="confirmDeleteCat()">删除分类</button>
+      <button class="modal-btn primary" id="saveCatBtn" onclick="saveCatModal()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <div class="modal-title">确认删除</div>
+    <p style="font-size:0.9rem;color:var(--text-2);margin-bottom:18px" id="confirmMsg"></p>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeConfirmModal()">取消</button>
+      <button class="modal-btn danger" onclick="doDeleteCat()">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 配置中心弹窗 -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal settings-modal">
+    <div class="modal-title">
+      <span>⚙️ 配置中心</span>
+      <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+    </div>
+    <div class="settings-hint">邮件提醒和坚果云备份统一在这里配置；密码默认不显示明文，留空表示沿用已保存密码。</div>
+
+    <section class="settings-section">
+      <div class="settings-section-head">
+        <div>
+          <div class="settings-section-title">📧 邮件提醒</div>
+          <div class="settings-section-desc">用于每日提醒和任务创建者邮件通知。</div>
+        </div>
+        <span class="settings-badge" id="smtpStatusBadge">读取中…</span>
+      </div>
+      <div class="settings-switch-row">
+        <div>
+          <div class="modal-label">启用邮件提醒</div>
+          <div class="settings-section-desc">开启后按每日检查时间扫描待提醒任务。</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="emailEnabledToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="settings-grid">
+        <label class="settings-field">
+          <span>每日检查时间</span>
+          <input class="modal-input" type="time" id="checkTimeInput" value="09:00">
+        </label>
+        <label class="settings-field">
+          <span>SMTP 服务器</span>
+          <input class="modal-input" type="text" id="emailHostInput" placeholder="smtp.163.com" autocomplete="off">
+        </label>
+        <label class="settings-field">
+          <span>SMTP 端口</span>
+          <input class="modal-input" type="number" id="emailPortInput" min="1" max="65535" placeholder="465">
+        </label>
+        <label class="settings-check-field">
+          <input type="checkbox" id="emailSecureToggle">
+          <span>使用 SSL/TLS</span>
+        </label>
+        <label class="settings-field">
+          <span>SMTP 账号</span>
+          <input class="modal-input" type="text" id="emailUserInput" placeholder="邮箱账号" autocomplete="username">
+        </label>
+        <label class="settings-field">
+          <span>SMTP 密码 / 授权码</span>
+          <input class="modal-input" type="password" id="emailPasswordInput" autocomplete="new-password">
+        </label>
+        <label class="settings-field">
+          <span>发件人名称</span>
+          <input class="modal-input" type="text" id="emailFromNameInput" placeholder="TODO提醒">
+        </label>
+        <label class="settings-field">
+          <span>发件人邮箱</span>
+          <input class="modal-input" type="email" id="emailFromInput" placeholder="默认使用 SMTP 账号">
+        </label>
+        <label class="settings-field settings-field-wide">
+          <span>收件人</span>
+          <input class="modal-input" type="text" id="emailRecipientsInput" placeholder="可填写一个或多个邮箱，多个用逗号分隔">
+        </label>
+      </div>
+      <div class="settings-actions-inline">
+        <button class="modal-btn primary" id="testEmailBtn" onclick="testEmailSettings()">测试邮件</button>
+        <span class="settings-result" id="emailTestResult"></span>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <div class="settings-section-head">
+        <div>
+          <div class="settings-section-title">☁️ 坚果云备份</div>
+          <div class="settings-section-desc">通过坚果云 WebDAV 增量同步数据库和 Markdown 笔记；每次保留一份完整快照清单。</div>
+        </div>
+        <span class="settings-badge" id="backupStatusBadge">读取中…</span>
+      </div>
+      <div class="settings-grid">
+        <label class="settings-field settings-field-wide">
+          <span>WebDAV 地址</span>
+          <input class="modal-input" type="url" id="webdavBaseUrlInput" placeholder="https://dav.jianguoyun.com/dav/">
+        </label>
+        <label class="settings-field">
+          <span>坚果云账号</span>
+          <input class="modal-input" type="text" id="webdavUsernameInput" placeholder="坚果云邮箱/账号" autocomplete="username">
+        </label>
+        <label class="settings-field">
+          <span>应用密码</span>
+          <input class="modal-input" type="password" id="webdavPasswordInput" autocomplete="new-password">
+        </label>
+        <label class="settings-field">
+          <span>备份目录</span>
+          <input class="modal-input" type="text" id="webdavBackupDirInput" placeholder="todo-app-backups">
+        </label>
+        <label class="settings-field">
+          <span>自动备份间隔（小时）</span>
+          <input class="modal-input" type="number" id="webdavIntervalInput" min="1" step="1" placeholder="24">
+        </label>
+        <label class="settings-check-field">
+          <input type="checkbox" id="webdavAutoEnabledToggle">
+          <span>启用自动备份</span>
+        </label>
+      </div>
+      <div id="backupMeta" class="settings-meta">读取中…</div>
+      <div class="settings-actions-inline">
+        <button class="modal-btn primary" id="testWebdavBtn" onclick="testWebdavSettings()">测试坚果云</button>
+        <button class="modal-btn" id="backupNowBtn" onclick="runCloudBackup()">立即备份</button>
+        <span class="settings-result" id="backupResult"></span>
+      </div>
+    </section>
+
+    <div class="settings-footer-actions">
+      <button class="modal-btn cancel" onclick="closeSettingsModal()">关闭</button>
+      <button class="modal-btn primary" id="saveSettingsBtn" onclick="saveSettings()">保存配置</button>
+    </div>
+    <div class="settings-result settings-save-result" id="settingsSaveResult"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reminderModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="reminderModalTitle">🔔 任务提醒</span>
+      <button class="modal-close" onclick="closeReminderModal()">✕</button>
+    </div>
+    <div class="modal-row">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div class="modal-label" style="margin-bottom:0">启用提醒</div>
+        <label class="switch">
+          <input type="checkbox" id="reminderEnabledToggle">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-row">
+      <label class="modal-label" for="reminderModeInput">重复方式</label>
+      <select class="modal-input" id="reminderModeInput" onchange="toggleReminderRepeatFields()">
+        <option value="once">单次提醒</option>
+        <option value="weekly">每周重复</option>
+        <option value="count">按次数重复</option>
+      </select>
+      <div class="reminder-help">单次只发送一次；每周重复会按选中的星期持续发送；按次数重复达到总次数后自动关闭。</div>
+    </div>
+    <div class="modal-row" id="reminderWeekdaysRow">
+      <span class="modal-label">重复星期</span>
+      <div class="reminder-weekdays">
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="1"><span>周一</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="2"><span>周二</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="3"><span>周三</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="4"><span>周四</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="5"><span>周五</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="6"><span>周六</span></label>
+        <label class="reminder-day"><input type="checkbox" name="reminderWeekday" value="7"><span>周日</span></label>
+      </div>
+    </div>
+    <div class="modal-row" id="reminderRepeatCountRow" style="display:none">
+      <label class="modal-label" for="reminderRepeatCountInput">重复总次数</label>
+      <input class="modal-input" type="number" id="reminderRepeatCountInput" min="1" max="1000" step="1" value="4">
+    </div>
+    <div class="modal-row">
+      <label class="modal-label">提醒时间</label>
+      <input class="modal-input" type="time" id="reminderTimeInput" value="09:00" style="height:40px;padding:0 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:0.9rem;background:var(--bg);color:var(--text);">
+    </div>
+    <div class="modal-row">
+      <label class="modal-label">接收邮箱</label>
+      <input class="modal-input" type="email" id="creatorEmailInput" placeholder="可选：单独指定该任务收件人；不填使用配置中心收件人" style="height:40px;padding:0 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:0.9rem;background:var(--bg);color:var(--text);">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="modal-btn cancel" style="flex:1;height:38px;border:none;border-radius:var(--radius-sm);font-size:0.85rem;cursor:pointer" onclick="closeReminderModal()">取消</button>
+      <button class="modal-btn primary" style="flex:1;height:38px;border:none;border-radius:var(--radius-sm);font-size:0.85rem;cursor:pointer;background:var(--primary);color:#fff" onclick="saveReminderSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal-overlay" id="progressModal">
+  <div class="modal">
+    <div class="modal-title">
+      <span id="progressModalTitle">设置进度</span>
+      <button class="modal-close" onclick="closeProgressModal()">✕</button>
+    </div>
+    <div style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+        <input type="range" id="progressRange" min="0" max="100" value="0"
+          style="flex:1;cursor:pointer" oninput="syncProgressPct(this.value)">
+        <span id="progressRangePct" style="font-size:1.1rem;font-weight:700;color:var(--accent);min-width:44px;text-align:right">0%</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="modal-btn cancel" style="flex:1;min-width:56px" onclick="setProgressVal(0)">0%</button>
+        <button class="modal-btn" style="flex:1;min-width:56px" onclick="setProgressVal(25)">25%</button>
+        <button class="modal-btn" style="flex:1;min-width:56px" onclick="setProgressVal(50)">50%</button>
+        <button class="modal-btn" style="flex:1;min-width:56px" onclick="setProgressVal(75)">75%</button>
+        <button class="modal-btn" style="flex:1;min-width:56px" onclick="setProgressVal(100)">100%</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeProgressModal()">取消</button>
+      <button class="modal-btn primary" onclick="saveProgress()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="noteModal">
+  <div class="modal note-modal">
+    <div class="modal-title">
+      <span id="noteModalTitle">📄 笔记</span>
+      <button class="modal-close" onclick="closeNoteModal()">✕</button>
+    </div>
+    <div class="note-toolbar">
+      <div class="note-tabs">
+        <button class="note-tab active" id="noteTabPreview" onclick="setNoteMode('preview')">预览</button>
+        <button class="note-tab" id="noteTabEdit" onclick="setNoteMode('edit')">编辑</button>
+      </div>
+      <span class="note-save-status" id="noteSaveStatus"></span>
+    </div>
+    <div class="note-body note-preview-wrap" id="notePreview"></div>
+    <textarea class="note-body note-editor" id="noteEditor" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeNoteModal()">取消</button>
+      <button class="modal-btn primary" onclick="saveNote()">保存文档</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = '/api';
+  let categories = [];
+  let todos = [];
+  let activeCatId = null; // null = 全部
+  let editingCatId = null;
+  let editingTodoId = null;
+  let editingProgressTodoId = null;
+  let editingReminderTodoId = null;
+  let settings = {
+    email: { enabled: false, checkTime: '09:00', host: 'smtp.163.com', port: 465, secure: true, user: '', passwordConfigured: false, fromName: 'TODO提醒', from: '', recipients: '', configured: false },
+    webdav: { provider: 'jianguoyun', baseUrl: 'https://dav.jianguoyun.com/dav/', username: '', passwordConfigured: false, backupDir: 'todo-app-backups', autoEnabled: false, intervalHours: 24, configured: false },
+    emailEnabled: false, checkTime: '09:00', smtpReady: false, backup: null
+  };
+  let backupStatus = { configured: false, backupDir: 'todo-app-backups', provider: 'jianguoyun', lastBackup: null };
+  let selectedIcon = '📋';
+  let selectedAddCatId = localStorage.getItem('lastUsedCatId') || 'cat_default';
+  let defaultCatId = null; // resolved after categories load
+
+  const PRESET_ICONS = [
+    '📋','📌','📍','💰','💎','💳','🎬','🎥','🎞️','📺',
+    '📚','📖','📕','🎮','🕹️','🎯','⚽','🏀','🎸','🎨',
+    '🍳','☕','🍺','🍜','🏠','🚗','✈️','💼','🏢','📱',
+    '💻','🔧','🔬','📊','📈','📉','🧘','🏃','🌱','🌸',
+    '🎁','⭐','🔥','💡','⚡','🎉','🎊','👀','✔️','❌',
+    '🗑️','✏️','📝','📧','🛒','🎒','🏋️','🧗','🚴','🏊',
+    '🎵','🎤','🎬','📷','🎨','🖼️','🌅','🏞️','🌺','🍀',
+    '🌻','🌹','🍎','🍕','🎂','🍦','🧃','🍷','🏨','🛵'
+  ];
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    initSidebarWidth();
+    loadData();
+    initIconGrid();
+    document.getElementById('todoInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') addTodo();
+    });
+    document.getElementById('catNameInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') saveCatModal();
+    });
+    // Close dropdowns on outside click
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.move-dropdown') && !e.target.closest('.cat-picker-list') && !e.target.closest('.cat-picker-btn')) {
+        closeMoveDropdown();
+        document.querySelectorAll('.cat-picker-list').forEach(d => d.classList.remove('open'));
+        document.querySelectorAll('.cat-picker-btn').forEach(b => b.classList.remove('open'));
+      }
+    });
+  });
+
+  /* ── Sidebar width ── */
+  function initSidebarWidth() {
+    const root = document.documentElement;
+    const cssMin = parseFloat(getComputedStyle(root).getPropertyValue('--sidebar-min-w')) || 220;
+    const cssMax = parseFloat(getComputedStyle(root).getPropertyValue('--sidebar-max-w')) || 460;
+    let saved = null;
+    try { saved = parseFloat(localStorage.getItem('sidebar-w')); } catch (e) {}
+    const width = saved && saved >= cssMin && saved <= cssMax
+      ? saved
+      : Math.round(Math.min(Math.max(window.innerWidth * 0.22, cssMin), cssMax));
+    root.style.setProperty('--sidebar-w', width + 'px');
+    localStorage.setItem('sidebar-w', width);
+
+    const resizer = document.getElementById('sidebarResizer');
+    if (!resizer) return;
+    let startX, startW, dragging = false;
+
+    const onMove = e => {
+      if (!dragging) return;
+      const x = e.touches ? e.touches[0].clientX : e.clientX;
+      const w = Math.round(Math.min(Math.max(startW + (x - startX), cssMin), cssMax));
+      root.style.setProperty('--sidebar-w', w + 'px');
+      localStorage.setItem('sidebar-w', w);
+      resizer.classList.add('dragging');
+    };
+    const onDown = e => {
+      dragging = true;
+      startX = e.touches ? e.touches[0].clientX : e.clientX;
+      startW = parseFloat(getComputedStyle(root).getPropertyValue('--sidebar-w')) || startX;
+      document.body.classList.add('resizing');
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, { passive: false });
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('resizing');
+      resizer.classList.remove('dragging');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+    };
+    resizer.addEventListener('mousedown', onDown);
+    resizer.addEventListener('touchstart', onDown, { passive: true });
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchend', onUp);
+  }
+
+  /* ── Theme ── */
+  function initTheme() {
+    const saved = localStorage.getItem('todo-theme') || 'light';
+    setTheme(saved);
+  }
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('todo-theme', t);
+    document.getElementById('themeToggle').textContent = t === 'dark' ? '☀️' : '🌙';
+  }
+  function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') || 'light';
+    setTheme(cur === 'dark' ? 'light' : 'dark');
+  }
+
+  /* ── Settings Modal ── */
+  function defaultSettings() {
+    return {
+      email: {
+        enabled: false,
+        checkTime: '09:00',
+        host: 'smtp.163.com',
+        port: 465,
+        secure: true,
+        user: '',
+        passwordConfigured: false,
+        fromName: 'TODO提醒',
+        from: '',
+        recipients: '',
+        configured: false,
+      },
+      webdav: {
+        provider: 'jianguoyun',
+        baseUrl: 'https://dav.jianguoyun.com/dav/',
+        username: '',
+        passwordConfigured: false,
+        backupDir: 'todo-app-backups',
+        autoEnabled: false,
+        intervalHours: 24,
+        configured: false,
+      },
+      emailEnabled: false,
+      checkTime: '09:00',
+      smtpReady: false,
+      backup: null,
+    };
+  }
+
+  function normalizeSettings(raw = {}) {
+    const base = defaultSettings();
+    const email = { ...base.email, ...(raw.email || {}) };
+    email.enabled = raw.emailEnabled !== undefined ? !!raw.emailEnabled : !!email.enabled;
+    email.checkTime = raw.checkTime || email.checkTime || '09:00';
+    email.configured = raw.smtpReady !== undefined ? !!raw.smtpReady : !!email.configured;
+    const webdav = { ...base.webdav, ...(raw.webdav || {}), ...(raw.backup || {}) };
+    return {
+      ...base,
+      ...raw,
+      email,
+      webdav,
+      emailEnabled: email.enabled,
+      checkTime: email.checkTime,
+      smtpReady: email.configured,
+    };
+  }
+
+  function setBadge(id, ok, yesText = '✅ 已配置', noText = '❌ 未配置') {
+    const badge = document.getElementById(id);
+    if (!badge) return;
+    badge.textContent = ok ? yesText : noText;
+    badge.style.background = ok ? 'rgba(82,196,26,0.12)' : 'rgba(255,85,85,0.12)';
+    badge.style.color = ok ? '#52c41a' : '#ff5555';
+  }
+
+  function setResult(id, text, kind = 'muted') {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = kind === 'ok' ? '#52c41a' : kind === 'error' ? 'var(--danger)' : 'var(--text-3)';
+  }
+
+  function setButtonBusy(id, busy, text) {
+    const btn = document.getElementById(id);
+    if (!btn) return null;
+    if (!btn.dataset.defaultText) btn.dataset.defaultText = btn.textContent;
+    btn.disabled = !!busy;
+    btn.textContent = busy ? text : btn.dataset.defaultText;
+    return btn;
+  }
+
+  async function refreshSettings() {
+    const res = await fetch(API + '/settings?_=' + Date.now());
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '读取配置失败');
+    settings = normalizeSettings(data);
+    backupStatus = settings.backup || settings.webdav || backupStatus;
+    populateSettingsForm();
+    renderBackupStatus();
+    return settings;
+  }
+
+  function populateSettingsForm() {
+    settings = normalizeSettings(settings);
+    const email = settings.email;
+    const webdav = settings.webdav;
+    const setVal = (id, value = '') => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
+    const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
+
+    setChecked('emailEnabledToggle', email.enabled);
+    setVal('checkTimeInput', email.checkTime || '09:00');
+    setVal('emailHostInput', email.host || 'smtp.163.com');
+    setVal('emailPortInput', email.port || 465);
+    setChecked('emailSecureToggle', email.secure !== false);
+    setVal('emailUserInput', email.user || '');
+    setVal('emailFromNameInput', email.fromName || 'TODO提醒');
+    setVal('emailFromInput', email.from || '');
+    setVal('emailRecipientsInput', email.recipients || '');
+    setVal('emailPasswordInput', '');
+    const emailPasswordInput = document.getElementById('emailPasswordInput');
+    if (emailPasswordInput) emailPasswordInput.placeholder = email.passwordConfigured ? '已配置，留空不修改' : 'SMTP 密码 / 授权码';
+    setBadge('smtpStatusBadge', !!email.configured);
+
+    setVal('webdavBaseUrlInput', webdav.baseUrl || 'https://dav.jianguoyun.com/dav/');
+    setVal('webdavUsernameInput', webdav.username || '');
+    setVal('webdavBackupDirInput', webdav.backupDir || 'todo-app-backups');
+    setVal('webdavIntervalInput', webdav.intervalHours || 24);
+    setChecked('webdavAutoEnabledToggle', webdav.autoEnabled);
+    setVal('webdavPasswordInput', '');
+    const webdavPasswordInput = document.getElementById('webdavPasswordInput');
+    if (webdavPasswordInput) webdavPasswordInput.placeholder = webdav.passwordConfigured ? '已配置，留空不修改' : '坚果云应用密码';
+    setBadge('backupStatusBadge', !!webdav.configured);
+    renderBackupStatus();
+  }
+
+  function settingsPayloadFromForm() {
+    const value = id => (document.getElementById(id)?.value || '').trim();
+    const checked = id => !!document.getElementById(id)?.checked;
+    const payload = {
+      email: {
+        enabled: checked('emailEnabledToggle'),
+        checkTime: value('checkTimeInput') || '09:00',
+        host: value('emailHostInput'),
+        port: Number(value('emailPortInput')) || 465,
+        secure: checked('emailSecureToggle'),
+        user: value('emailUserInput'),
+        fromName: value('emailFromNameInput') || 'TODO提醒',
+        from: value('emailFromInput'),
+        recipients: value('emailRecipientsInput'),
+      },
+      webdav: {
+        baseUrl: value('webdavBaseUrlInput') || 'https://dav.jianguoyun.com/dav/',
+        username: value('webdavUsernameInput'),
+        backupDir: value('webdavBackupDirInput') || 'todo-app-backups',
+        autoEnabled: checked('webdavAutoEnabledToggle'),
+        intervalHours: Number(value('webdavIntervalInput')) || 24,
+      },
+    };
+    const emailPassword = document.getElementById('emailPasswordInput')?.value || '';
+    const webdavPassword = document.getElementById('webdavPasswordInput')?.value || '';
+    if (emailPassword) payload.email.password = emailPassword;
+    if (webdavPassword) payload.webdav.password = webdavPassword;
+    return payload;
+  }
+
+  async function openSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+    populateSettingsForm();
+    setResult('settingsSaveResult', '正在读取配置…');
+    try {
+      await refreshSettings();
+      setResult('settingsSaveResult', '');
+    } catch (e) {
+      setResult('settingsSaveResult', e.message, 'error');
+    }
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+  }
+
+  async function saveSettings() {
+    setButtonBusy('saveSettingsBtn', true, '保存中…');
+    setResult('settingsSaveResult', '正在保存配置…');
+    try {
+      const res = await fetch(API + '/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsPayloadFromForm()),
+      });
+      const updated = await res.json();
+      if (!res.ok) throw new Error(updated.error || '保存配置失败');
+      settings = normalizeSettings(updated);
+      backupStatus = settings.backup || settings.webdav || backupStatus;
+      populateSettingsForm();
+      setResult('settingsSaveResult', '✅ 配置已保存，服务端已按新配置生效。', 'ok');
+    } catch (e) {
+      setResult('settingsSaveResult', `❌ ${e.message}`, 'error');
+    } finally {
+      setButtonBusy('saveSettingsBtn', false);
+    }
+  }
+
+  async function testEmailSettings() {
+    setButtonBusy('testEmailBtn', true, '测试中…');
+    setResult('emailTestResult', '正在发送测试邮件…');
+    try {
+      const payload = settingsPayloadFromForm();
+      const res = await fetch(API + '/settings/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '邮件测试失败');
+      setResult('emailTestResult', `✅ 测试邮件已发送至 ${data.to || payload.email.recipients}`, 'ok');
+    } catch (e) {
+      setResult('emailTestResult', `❌ ${e.message}`, 'error');
+    } finally {
+      setButtonBusy('testEmailBtn', false);
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+
+  function renderBackupStatus() {
+    const settingsWebdav = normalizeSettings(settings).webdav;
+    const status = { ...settingsWebdav, ...(backupStatus || {}) };
+    const configured = !!status.configured;
+    setBadge('backupStatusBadge', configured);
+
+    const meta = document.getElementById('backupMeta');
+    const btn = document.getElementById('backupNowBtn');
+    if (btn) btn.disabled = !configured;
+    if (meta) {
+      meta.textContent = `目录：${status.backupDir || 'todo-app-backups'} · 增量上传 / 完整快照 · ${status.autoEnabled ? `自动备份：每 ${status.intervalHours || 24} 小时` : '自动备份：未启用'}`;
+    }
+
+    const lastBackup = status.lastBackup || backupStatus?.lastBackup;
+    if (lastBackup?.success) {
+      setResult('backupResult', `最近同步：${new Date(lastBackup.createdAt).toLocaleString()} · 上传对象 ${lastBackup.uploadedObjects ?? '-'} 个，复用 ${lastBackup.reusedObjects ?? '-'} 个 · ${lastBackup.noteCount ?? 0} 个笔记 · ${formatBytes(lastBackup.bytes)}`);
+    } else if (lastBackup?.error) {
+      setResult('backupResult', `最近备份失败：${lastBackup.error}`, 'error');
+    } else {
+      setResult('backupResult', configured ? '配置完整，可测试连接或立即备份。' : '请填写坚果云账号和应用密码。');
+    }
+  }
+
+  async function refreshBackupStatus() {
+    try {
+      const res = await fetch(API + '/backup/status?_=' + Date.now());
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '读取备份状态失败');
+      backupStatus = data;
+      settings = normalizeSettings({ ...settings, webdav: { ...normalizeSettings(settings).webdav, ...data } });
+      renderBackupStatus();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function testWebdavSettings() {
+    setButtonBusy('testWebdavBtn', true, '测试中…');
+    setResult('backupResult', '正在连接坚果云 WebDAV…');
+    try {
+      const res = await fetch(API + '/backup/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsPayloadFromForm()),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '坚果云测试失败');
+      setResult('backupResult', `✅ 坚果云连接成功：${data.backupDir || 'todo-app-backups'}（${data.durationMs}ms）`, 'ok');
+    } catch (e) {
+      setResult('backupResult', `❌ ${e.message}`, 'error');
+    } finally {
+      setButtonBusy('testWebdavBtn', false);
+    }
+  }
+
+  async function runCloudBackup() {
+    const status = backupStatus || {};
+    if (!status.configured) { renderBackupStatus(); return; }
+    setButtonBusy('backupNowBtn', true, '备份中…');
+    setResult('backupResult', '正在同步数据库和 Markdown 变更…');
+    try {
+      const res = await fetch(API + '/backup/run', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '备份失败');
+      backupStatus = { ...backupStatus, configured: true, lastBackup: data };
+      settings = normalizeSettings({ ...settings, backup: backupStatus });
+      setResult('backupResult', `✅ 同步完成：上传对象 ${data.uploadedObjects} 个，复用 ${data.reusedObjects} 个 · ${data.noteCount} 个笔记 · ${formatBytes(data.bytes)}`, 'ok');
+    } catch (e) {
+      backupStatus = { ...backupStatus, lastBackup: { success: false, error: e.message, createdAt: new Date().toISOString() } };
+      setResult('backupResult', `❌ ${e.message}`, 'error');
+    } finally {
+      setButtonBusy('backupNowBtn', false);
+      renderBackupStatus();
+    }
+  }
+
+  /* ── Reminder Modal ── */
+  function toggleReminderRepeatFields() {
+    const mode = document.getElementById('reminderModeInput')?.value || 'once';
+    const weekdaysRow = document.getElementById('reminderWeekdaysRow');
+    const countRow = document.getElementById('reminderRepeatCountRow');
+    if (weekdaysRow) weekdaysRow.style.display = mode === 'once' ? 'none' : 'flex';
+    if (countRow) countRow.style.display = mode === 'count' ? 'flex' : 'none';
+  }
+
+  function openReminderModal(todoId) {
+    editingReminderTodoId = todoId;
+    const t = todos.find(t => t.id === todoId);
+    if (!t) return;
+    document.getElementById('reminderEnabledToggle').checked = !!t.reminderEnabled;
+    document.getElementById('reminderModeInput').value = t.reminderMode || 'once';
+    document.getElementById('reminderTimeInput').value = t.reminderTime || '09:00';
+    document.getElementById('reminderRepeatCountInput').value = t.reminderRepeatCount || 4;
+    document.querySelectorAll('input[name="reminderWeekday"]').forEach(input => {
+      input.checked = (t.reminderWeekdays || []).includes(Number(input.value));
+    });
+    document.getElementById('creatorEmailInput').value = t.creatorEmail || '';
+    document.getElementById('reminderModalTitle').textContent = (t.reminderEnabled ? '🔔 ' : '🔕 ') + (t.title.length > 12 ? t.title.slice(0, 12) + '…' : t.title);
+    toggleReminderRepeatFields();
+    document.getElementById('reminderModal').classList.add('show');
+  }
+  function closeReminderModal() {
+    document.getElementById('reminderModal').classList.remove('show');
+    editingReminderTodoId = null;
+  }
+  async function saveReminderSettings() {
+    if (!editingReminderTodoId) return;
+    const reminderEnabled = document.getElementById('reminderEnabledToggle').checked;
+    const reminderMode = document.getElementById('reminderModeInput').value;
+    const reminderTime = document.getElementById('reminderTimeInput').value;
+    const reminderWeekdays = [...document.querySelectorAll('input[name="reminderWeekday"]:checked')].map(input => Number(input.value));
+    const reminderRepeatCount = Math.max(1, Number(document.getElementById('reminderRepeatCountInput').value) || 1);
+    const creatorEmail = document.getElementById('creatorEmailInput').value.trim();
+    const todoId = editingReminderTodoId;
+    const saveBtn = document.querySelector('#reminderModal .modal-btn.primary');
+    if (saveBtn) saveBtn.disabled = true;
+    try {
+      const res = await fetch(API + '/todos/' + todoId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reminderEnabled, reminderMode, reminderTime, reminderWeekdays, reminderRepeatCount, creatorEmail })
+      });
+      const updated = await res.json();
+      if (!res.ok) throw new Error(updated.error || '保存提醒设置失败');
+      const idx = todos.findIndex(t => t.id === todoId);
+      if (idx !== -1) todos[idx] = updated;
+      closeReminderModal();
+      render();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
+    }
+  }
+
+
+  /* ── Sidebar ── */
+  function openSidebar() { document.getElementById('sidebar').classList.add('open'); }
+  function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); }
+
+  /* ── Data loading ── */
+  async function loadData() {
+    try {
+      const ts = Date.now();
+      const [catsRes, todosRes, settingsRes, backupRes] = await Promise.all([
+        fetch(API + '/categories?_=' + ts),
+        fetch(API + '/todos?_=' + ts),
+        fetch(API + '/settings?_=' + ts),
+        fetch(API + '/backup/status?_=' + ts)
+      ]);
+      const newCats = await catsRes.json();
+      const newTodos = await todosRes.json();
+      const newSettings = await settingsRes.json();
+      const newBackupStatus = await backupRes.json();
+      settings = newSettings;
+      backupStatus = newBackupStatus;
+      categories.splice(0, categories.length, ...newCats);
+      todos.splice(0, todos.length, ...newTodos);
+      // Resolve default category id
+      const stored = localStorage.getItem('lastUsedCatId');
+      defaultCatId = newCats.find(c => c.name === '默认')?.id || newCats[0]?.id || null;
+      if (stored && newCats.find(c => c.id === stored)) {
+        selectedAddCatId = stored;
+      } else {
+        selectedAddCatId = defaultCatId;
+        localStorage.setItem('lastUsedCatId', defaultCatId);
+      }
+      renderCats();
+      initCatPicker();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  /* ── Render categories (sidebar) ── */
+  function renderCats() {
+    const allCount = todos.length;
+    const catCounts = {};
+    todos.forEach(t => {
+      catCounts[t.categoryId] = (catCounts[t.categoryId] || 0) + 1;
+    });
+
+    const sorted = categories.sort((a, b) => a.sort_order - b.sort_order);
+
+    let html = `
+      <div class="cat-item cat-all${activeCatId === null ? ' active' : ''}" onclick="selectCat(null)">
+        <span class="cat-icon">📋</span>
+        <span class="cat-name">全部</span>
+        <span class="cat-count">${allCount}</span>
+      </div>
+    `;
+
+    html += `<div class="cat-divider"></div>`;
+
+    sorted.forEach((cat, idx) => {
+      const count = catCounts[cat.id] || 0;
+      const canUp = idx > 0;
+      const canDown = idx < sorted.length - 1;
+      html += `
+        <div class="cat-item${activeCatId === cat.id ? ' active' : ''}" onclick="selectCat('${cat.id}')">
+          <span class="cat-icon">${escHtml(cat.icon)}</span>
+          <span class="cat-name">${escHtml(cat.name)}</span>
+          <span class="cat-count">${count}</span>
+          <div class="cat-order-btns">
+            <button class="cat-act-btn move${!canUp ? ' disabled' : ''}"
+                    onclick="event.stopPropagation(); reorderCat('${cat.id}', 'up')"
+                    title="上移">▲</button>
+            <button class="cat-act-btn move${!canDown ? ' disabled' : ''}"
+                    onclick="event.stopPropagation(); reorderCat('${cat.id}', 'down')"
+                    title="下移">▼</button>
+          </div>
+          <div class="cat-actions">
+            <button class="cat-act-btn" onclick="event.stopPropagation(); openEditCatModal('${cat.id}')" title="编辑">✎</button>
+            <button class="cat-act-btn del" onclick="event.stopPropagation(); openDelCatConfirm('${cat.id}')" title="删除">🗑</button>
+          </div>
+        </div>
+      `;
+    });
+
+    document.getElementById('catList').innerHTML = html;
+  }
+
+  async function reorderCat(catId, direction) {
+    const sorted = [...categories].sort((a, b) => a.sort_order - b.sort_order);
+    const idx = sorted.findIndex(c => c.id === catId);
+    if (idx === -1) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    // Swap orders
+    const tmpOrder = sorted[idx].sort_order;
+    sorted[idx].sort_order = sorted[swapIdx].sort_order;
+    sorted[swapIdx].sort_order = tmpOrder;
+    // Update local state
+    categories = sorted;
+    renderCats();
+    // Persist
+    try {
+      await fetch(API + '/categories/reorder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order: sorted.map(c => c.id) })
+      });
+    } catch (e) { console.error(e); }
+  }
+
+  function selectCat(catId) {
+    activeCatId = catId;
+    const cat = catId ? categories.find(c => c.id === catId) : null;
+    document.getElementById('currentCatTitle').innerHTML =
+      cat ? `${escHtml(cat.icon)} ${escHtml(cat.name)}` : '📋 全部';
+    // Sync: also set the add-form category to the selected one
+    if (catId) {
+      selectedAddCatId = catId;
+    } else {
+      // "All" → reset to default category
+      selectedAddCatId = defaultCatId;
+    }
+    localStorage.setItem('lastUsedCatId', selectedAddCatId);
+    renderCatPickerLabel();
+    renderCats();
+    render();
+    closeSidebar();
+  }
+
+  /* ── Category select (native select) ── */
+  function initCatPicker() {
+    renderCatPickerLabel();
+  }
+
+  function renderCatPickerLabel() {
+    const cat = categories.find(c => c.id === selectedAddCatId) || categories[0];
+    const label = document.getElementById('catPickerLabel');
+    if (label && cat) label.textContent = cat.icon + ' ' + cat.name;
+  }
+
+  function toggleCatPicker(e) {
+    if (e) e.stopPropagation();
+    const list = document.getElementById('catPickerList');
+    const btn = document.getElementById('catPickerBtn');
+    if (!list || !btn) return;
+    const isOpen = list.classList.contains('open');
+    if (isOpen) {
+      list.classList.remove('open');
+      btn.classList.remove('open');
+      return;
+    }
+    // Build list
+    list.innerHTML = categories.sort((a, b) => a.sort_order - b.sort_order).map(c => `
+      <div class="cat-picker-item${c.id === selectedAddCatId ? ' selected' : ''}"
+           onclick="selectAddCat('${c.id}')">
+        <span class="check">${c.id === selectedAddCatId ? '✔' : ''}</span>
+        ${escHtml(c.icon)} ${escHtml(c.name)}
+      </div>
+    `).join('');
+    // Move to body for Portal behavior (avoids stacking context issues)
+    if (list.parentElement !== document.body) {
+      document.body.appendChild(list);
+    }
+    list.style.position = 'fixed';
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (vw <= 768) {
+      // Mobile: pin to bottom of screen
+      list.style.left = '0';
+      list.style.right = '0';
+      list.style.top = 'auto';
+      list.style.bottom = '0';
+    } else {
+      // Desktop: appear below button
+      const rect = btn.getBoundingClientRect();
+      list.style.left = rect.left + 'px';
+      list.style.right = 'auto';
+      list.style.top = (rect.bottom + 4) + 'px';
+      list.style.bottom = 'auto';
+    }
+    btn.classList.add('open');
+    list.classList.add('open');
+  }
+
+  function selectAddCat(catId) {
+    selectedAddCatId = catId;
+    localStorage.setItem('lastUsedCatId', catId);
+    const list = document.getElementById('catPickerList');
+    const btn = document.getElementById('catPickerBtn');
+    if (list) list.classList.remove('open');
+    if (btn) btn.classList.remove('open');
+    renderCatPickerLabel();
+  }
+
+  /* ── Render todos ── */
+  function render() {
+    let filtered = todos;
+    if (activeCatId !== null) {
+      filtered = todos.filter(t => t.categoryId === activeCatId);
+    }
+    const pending = filtered.filter(t => !t.completed);
+    const completed = filtered.filter(t => t.completed);
+    const total = filtered.length;
+    const done = completed.length;
+
+    document.getElementById('doneCount').textContent = done;
+    document.getElementById('totalCount').textContent = total;
+
+    const progCard = document.getElementById('progressCard');
+    if (total > 0) {
+      const pct = pending.length > 0
+        ? Math.round(pending.reduce((sum, t) => sum + Math.max(0, Math.min(100, Number(t.progress) || 0)), 0) / pending.length)
+        : 100;
+      progCard.style.display = 'block';
+      document.getElementById('progressLabel').textContent = pending.length > 0 ? '待完成进度' : '全部完成';
+      document.getElementById('progressPct').textContent = pct + '%';
+      document.getElementById('progressSubtext').textContent = pending.length > 0
+        ? `剩余 ${pending.length} 项 · 已完成 ${done} 项`
+        : `当前分类已全部完成 · 共 ${done} 项`;
+      document.getElementById('progressFill').style.width = pct + '%';
+    } else {
+      progCard.style.display = 'none';
+    }
+
+    document.getElementById('pendingSection').style.display = total > 0 && pending.length > 0 ? 'block' : 'none';
+    document.getElementById('doneSection').style.display = total > 0 && completed.length > 0 ? 'block' : 'none';
+    document.getElementById('todoList').innerHTML = pending.map(makeTodoItem).join('');
+    document.getElementById('doneList').innerHTML = completed.map(makeTodoItem).join('');
+  }
+
+  function makeTodoItem(t) {
+    const cat = categories.find(c => c.id === t.categoryId);
+    const isEditing = editingTodoId === t.id;
+    const catIcon = escHtml(cat ? cat.icon : '📋');
+    const catName = cat ? cat.name : '默认';
+    const dateStr = formatDate(t.createdAt);
+    const created = new Date(t.createdAt);
+    const now = new Date();
+    const todayMs = now.setHours(0,0,0,0);
+    const periodBadge = (() => {
+      if (!t.completed) {
+        const diff = (todayMs - created.setHours(0,0,0,0)) / 86400000;
+        if (diff === 0) return '<span class="period-badge today">📅 今日</span>';
+        if (diff > 0 && diff <= 3) return '<span class="period-badge week">📆 近3日</span>';
+        if (diff > 3 && diff <= 7) return '<span class="period-badge week">📆 本周</span>';
+        if (diff > 7 && diff <= 30) return '<span class="period-badge month">📅 近1月</span>';
+      }
+      return '';
+    })();
+
+    if (isEditing) {
+      return `
+        <div class="todo-item" data-id="${t.id}">
+          <div class="checkbox"></div>
+          <div class="todo-body">
+            <input
+              class="edit-input"
+              id="edit-todo-${t.id}"
+              value="${escHtml(t.title)}"
+              maxlength="200"
+              onkeydown="handleTodoEditKey(event, '${t.id}')"
+              onblur="saveTodoEdit('${t.id}')"
+            />
+          </div>
+        </div>
+      `;
+    }
+
+    const progress = t.progress ?? 0
+    const showProgress = progress > 0
+
+    return `
+      <div class="todo-item${t.completed ? ' completed' : ''}" data-id="${t.id}">
+        <div class="checkbox${t.completed ? ' checked' : ''}" onclick="toggleTodo('${t.id}')"></div>
+        <div class="todo-body">
+          <div class="todo-text" onclick="startEditTodo('${t.id}')">${escHtml(t.title)}</div>
+          ${t.completed ? `
+          <div class="todo-progress-row" style="cursor:default;opacity:0.7">
+            <div class="todo-progress-track">
+              <div class="todo-progress-fill" style="width:100%"></div>
+            </div>
+            <span class="todo-progress-pct">100%</span>
+          </div>
+          ` : showProgress ? `
+          <div class="todo-progress-row" onclick="event.stopPropagation(); openProgressModal('${t.id}')">
+            <div class="todo-progress-track">
+              <div class="todo-progress-fill" style="width:${progress}%"></div>
+            </div>
+            <span class="todo-progress-pct">${progress}%</span>
+          </div>
+          ` : `
+          <div class="todo-progress-row" onclick="event.stopPropagation(); openProgressModal('${t.id}')">
+            <span class="todo-progress-add">+ 添加进度</span>
+          </div>
+          `}
+          <div class="todo-meta">
+            ${periodBadge}
+            <span class="todo-cat-tag" onclick="event.stopPropagation(); toggleMoveDropdown('${t.id}', event)">${catIcon} ${escHtml(catName)} ▼</span>
+            <span class="todo-date">${dateStr}</span>
+          </div>
+        </div>
+        <div class="todo-actions">
+          ${!t.completed ? `<button class="todo-act-btn reminder-action${t.reminderEnabled ? ' active' : ''}" onclick="openReminderModal('${t.id}')" title="${t.reminderEnabled ? '提醒已开启' : '提醒已关闭'}">${t.reminderEnabled ? '🔔' : '🔕'}</button>` : ''}
+          <button class="todo-act-btn${t.noteFile ? ' has-note' : ''}" onclick="openNoteModal('${t.id}')" title="笔记">📄</button>
+          <button class="todo-act-btn" onclick="startEditTodo('${t.id}')" title="编辑">✎</button>
+          <button class="todo-act-btn del" onclick="deleteTodo('${t.id}')" title="删除">✕</button>
+        </div>
+      </div>
+    `;
+  }
+
+  let openMoveTodoId = null;
+
+  function toggleMoveDropdown(todoId, event) {
+    if (event) event.stopPropagation();
+    const portal = document.getElementById('move-dropdown-portal');
+    if (!portal) return;
+
+    // If clicking the same item, close
+    if (openMoveTodoId === todoId && portal.style.display !== 'none') {
+      portal.style.display = 'none';
+      openMoveTodoId = null;
+      return;
+    }
+    openMoveTodoId = todoId;
+
+    // Build options HTML
+    const t = todos.find(x => x.id === todoId);
+    const optsHtml = categories.filter(c => c.id !== t.categoryId).map(c => `
+      <div class="move-option" onclick="moveTodo('${todoId}', '${c.id}'); closeMoveDropdown();">
+        ${escHtml(c.icon)} ${escHtml(c.name)}
+      </div>
+    `).join('') || '<div style="padding:8px 12px;font-size:0.82rem;color:var(--text-3)">无其他分类</div>';
+
+    portal.innerHTML = optsHtml;
+
+    // Position below the category tag of this item
+    const item = document.querySelector(`[data-id="${todoId}"]`);
+    const catTag = item ? item.querySelector('.todo-cat-tag') : null;
+    if (catTag) {
+      const rect = catTag.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let top = rect.bottom + 4;
+      let left = rect.left;
+      // Clamp: if overflow right, flip left
+      if (left + 160 > vw) left = Math.max(4, vw - 164);
+      // If overflow bottom, flip up
+      if (top + 260 > vh) top = rect.top - 260 - 4;
+      portal.style.top = top + 'px';
+      portal.style.left = left + 'px';
+    }
+    portal.style.display = 'block';
+  }
+
+  function closeMoveDropdown() {
+    const portal = document.getElementById('move-dropdown-portal');
+    if (portal) portal.style.display = 'none';
+    openMoveTodoId = null;
+  }
+
+  function escHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  /* ── Todo actions ── */
+  async function addTodo() {
+    const input = document.getElementById('todoInput');
+    const title = input.value.trim();
+    if (!title) { input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 350); return; }
+    const categoryId = selectedAddCatId;
+    try {
+      const res = await fetch(API + '/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, categoryId })
+      });
+      const t = await res.json();
+      todos.unshift(t);
+      input.value = '';
+      renderCats();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  async function toggleTodo(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    t.completed = !t.completed;
+    try {
+      await fetch(`${API}/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: t.completed })
+      });
+      renderCats();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  async function deleteTodo(id) {
+    const el = document.querySelector(`[data-id="${id}"]`);
+    if (el) { el.classList.add('deleting'); await sleep(220); }
+    try {
+      await fetch(`${API}/todos/${id}`, { method: 'DELETE' });
+      todos = todos.filter(x => x.id !== id);
+      editingTodoId = null;
+      renderCats();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  async function moveTodo(todoId, catId) {
+    try {
+      await fetch(`${API}/todos/${todoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoryId: catId })
+      });
+      const t = todos.find(x => x.id === todoId);
+      if (t) t.categoryId = catId;
+      renderCats();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  function startEditTodo(id) {
+    editingTodoId = id;
+    render();
+    const inp = document.getElementById(`edit-todo-${id}`);
+    if (inp) { inp.focus(); inp.select(); }
+  }
+
+  async function saveTodoEdit(id) {
+    const inp = document.getElementById(`edit-todo-${id}`);
+    if (!inp) return;
+    const newTitle = inp.value.trim();
+    if (!newTitle) { inp.classList.add('shake'); setTimeout(() => inp.classList.remove('shake'), 350); return; }
+    const t = todos.find(x => x.id === id);
+    if (!t) return;
+    t.title = newTitle;
+    editingTodoId = null;
+    try {
+      await fetch(`${API}/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle })
+      });
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  function handleTodoEditKey(e, id) {
+    if (e.key === 'Enter') { e.preventDefault(); saveTodoEdit(id); }
+    if (e.key === 'Escape') { editingTodoId = null; render(); }
+  }
+
+  /* ── Progress Modal ── */
+  function openProgressModal(todoId) {
+    const t = todos.find(x => x.id === todoId)
+    if (t?.completed) return
+    editingProgressTodoId = todoId
+    const val = t?.progress ?? 0
+    document.getElementById('progressRange').value = val
+    document.getElementById('progressRangePct').textContent = val + '%'
+    document.getElementById('progressModalTitle').textContent = t ? `进度: ${t.title}` : '设置进度'
+    document.getElementById('progressModal').classList.add('show')
+  }
+
+  function syncProgressPct(val) {
+    document.getElementById('progressRangePct').textContent = val + '%'
+  }
+
+  function setProgressVal(val) {
+    document.getElementById('progressRange').value = val
+    syncProgressPct(val)
+  }
+
+  function closeProgressModal() {
+    document.getElementById('progressModal').classList.remove('show')
+    editingProgressTodoId = null
+  }
+
+  async function saveProgress() {
+    const val = parseInt(document.getElementById('progressRange').value, 10)
+    const id = editingProgressTodoId
+    closeProgressModal()
+    if (!id) return
+    const t = todos.find(x => x.id === id)
+    if (t?.completed) return
+    try {
+      await fetch(`${API}/todos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ progress: val })
+      })
+      const t = todos.find(x => x.id === id)
+      if (t) { t.progress = val; render(); }
+    } catch (e) { console.error(e) }
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  /* ── Category Modal ── */
+  function initIconGrid() {
+    const grid = document.getElementById('iconGrid');
+    grid.innerHTML = PRESET_ICONS.map(icon => `
+      <button class="icon-option${icon === selectedIcon ? ' selected' : ''}"
+              onclick="selectIcon('${icon}')">${icon}</button>
+    `).join('');
+  }
+
+  function selectIcon(icon) {
+    selectedIcon = icon;
+    document.querySelectorAll('.icon-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.textContent === icon);
+    });
+  }
+
+  let pendingDeleteCatId = null;
+
+  function openAddCatModal() {
+    editingCatId = null;
+    selectedIcon = '📋';
+    document.getElementById('catModalTitle').textContent = '新增分类';
+    document.getElementById('catNameInput').value = '';
+    document.getElementById('saveCatBtn').textContent = '创建';
+    document.getElementById('delCatBtn').style.display = 'none';
+    document.getElementById('catModal').classList.add('show');
+    document.getElementById('catNameInput').focus();
+    initIconGrid();
+  }
+
+  function openEditCatModal(catId) {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat) return;
+    editingCatId = catId;
+    selectedIcon = cat.icon;
+    document.getElementById('catModalTitle').textContent = '编辑分类';
+    document.getElementById('catNameInput').value = cat.name;
+    document.getElementById('saveCatBtn').textContent = '保存';
+    document.getElementById('delCatBtn').style.display = 'inline-flex';
+    document.getElementById('catModal').classList.add('show');
+    document.getElementById('catNameInput').focus();
+    initIconGrid();
+    // Pre-select current icon
+    setTimeout(() => {
+      document.querySelectorAll('.icon-option').forEach(opt => {
+        opt.classList.toggle('selected', opt.textContent === cat.icon);
+      });
+    }, 0);
+  }
+
+  function closeCatModal() {
+    document.getElementById('catModal').classList.remove('show');
+  }
+
+  async function saveCatModal() {
+    const name = document.getElementById('catNameInput').value.trim();
+    if (!name) {
+      document.getElementById('catNameInput').classList.add('shake');
+      setTimeout(() => document.getElementById('catNameInput').classList.remove('shake'), 350);
+      return;
+    }
+    try {
+      if (editingCatId) {
+        // Update
+        const res = await fetch(`${API}/categories/${editingCatId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, icon: selectedIcon })
+        });
+        const updated = await res.json();
+        const idx = categories.findIndex(c => c.id === editingCatId);
+        if (idx !== -1) categories[idx] = updated;
+        // Update active cat title if needed
+        const activeCat = activeCatId ? categories.find(c => c.id === activeCatId) : null;
+        if (activeCat) {
+          document.getElementById('currentCatTitle').innerHTML = `${escHtml(activeCat.icon)} ${escHtml(activeCat.name)}`;
+        }
+      } else {
+        // Create
+        const res = await fetch(API + '/categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, icon: selectedIcon })
+        });
+        const newCat = await res.json();
+        categories.push(newCat);
+      }
+      closeCatModal();
+      renderCats();
+      initCatPicker();
+    } catch (e) { console.error(e); }
+  }
+
+  function openDelCatConfirm(catId) {
+    const cat = categories.find(c => c.id === catId);
+    if (!cat) return;
+    pendingDeleteCatId = catId;
+    const todoCount = todos.filter(t => t.categoryId === catId).length;
+    const msg = todoCount > 0
+      ? `确定删除「${cat.icon} ${cat.name}」吗？该分类下 ${todoCount} 条待办也会一并删除，此操作不可撤销。`
+      : `确定删除「${cat.icon} ${cat.name}」吗？`;
+    document.getElementById('confirmMsg').textContent = msg;
+    document.getElementById('confirmModal').classList.add('show');
+  }
+
+  function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('show');
+    pendingDeleteCatId = null;
+  }
+
+  async function doDeleteCat() {
+    if (!pendingDeleteCatId) return;
+    const catId = pendingDeleteCatId;
+    closeConfirmModal();
+    try {
+      await fetch(`${API}/categories/${catId}`, { method: 'DELETE' });
+      categories = categories.filter(c => c.id !== catId);
+      todos = todos.filter(t => t.categoryId !== catId);
+      if (activeCatId === catId) activeCatId = null;
+      document.getElementById('currentCatTitle').innerHTML = '📋 全部';
+      renderCats();
+      initCatPicker();
+      render();
+    } catch (e) { console.error(e); }
+  }
+
+  /* ── Date format ── */
+  function formatDate(iso) {
+    const d = new Date(iso);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) return `今天 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const yd = new Date(now); yd.setDate(now.getDate() - 1);
+    if (d.toDateString() === yd.toDateString()) return `昨天 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${d.getMonth()+1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function pad(n) { return n.toString().padStart(2, '0'); }
+
+  /* ── Note modal ── */
+  let noteTodoId = null;
+  let noteMode = 'preview';
+
+  async function openNoteModal(todoId) {
+    noteTodoId = todoId;
+    const t = todos.find(x => x.id === todoId);
+    const title = t ? t.title : '笔记';
+    document.getElementById('noteModalTitle').textContent = `📄 ${title}`;
+    document.getElementById('noteSaveStatus').textContent = '';
+    setNoteMode('preview');
+    document.getElementById('noteModal').classList.add('show');
+    await loadNote(todoId);
+  }
+
+  function closeNoteModal() {
+    document.getElementById('noteModal').classList.remove('show');
+    noteTodoId = null;
+  }
+
+  async function loadNote(todoId) {
+    try {
+      const res = await fetch(`${API}/todos/${todoId}/note`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `加载失败（${res.status}）`);
+      document.getElementById('noteEditor').value = data.content || '';
+      renderNotePreview(data.content || '');
+      const t = todos.find(x => x.id === todoId);
+      document.getElementById('noteModalTitle').textContent = `📄 ${t ? t.title : '笔记'}`;
+    } catch (e) {
+      console.error(e);
+      document.getElementById('noteSaveStatus').textContent = '❌ 加载失败';
+    }
+  }
+
+  function setNoteMode(mode) {
+    noteMode = mode;
+    const modal = document.getElementById('noteModal');
+    modal.dataset.mode = mode === 'edit' ? 'editor' : 'preview';
+    document.getElementById('noteTabPreview').classList.toggle('active', mode !== 'edit');
+    document.getElementById('noteTabEdit').classList.toggle('active', mode === 'edit');
+    if (mode === 'edit') {
+      const ed = document.getElementById('noteEditor');
+      ed.focus();
+    }
+  }
+
+  function renderNotePreview(content) {
+    const html = renderMarkdown(content !== undefined ? content : document.getElementById('noteEditor').value);
+    document.getElementById('notePreview').innerHTML = html;
+  }
+
+  async function saveNote() {
+    if (!noteTodoId) return;
+    const content = document.getElementById('noteEditor').value;
+    document.getElementById('noteSaveStatus').textContent = '保存中…';
+    try {
+      const res = await fetch(`${API}/todos/${noteTodoId}/note`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `保存失败（${res.status}）`);
+      renderNotePreview(content);
+      const st = document.getElementById('noteSaveStatus');
+      st.textContent = '✅ 已保存';
+      setTimeout(() => { st.textContent = ''; }, 2000);
+      const t = todos.find(x => x.id === noteTodoId);
+      if (t) t.noteFile = data.noteFile;
+      render();
+    } catch (e) {
+      console.error(e);
+      document.getElementById('noteSaveStatus').textContent = '❌ 保存失败';
+    }
+  }
+
+  /* ── Markdown renderer ── */
+  function escMd(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+  function safeMdUrl(value) {
+    const decoder = document.createElement('textarea');
+    decoder.innerHTML = String(value || '');
+    const decoded = decoder.value.trim();
+    try {
+      const parsed = new URL(decoded, document.baseURI);
+      if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return null;
+      return escMd(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+  function inlineMd(s) {
+    let html = escMd(s);
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, href) => {
+      const safeHref = safeMdUrl(href);
+      return safeHref
+        ? `<a href="${safeHref}" target="_blank" rel="noopener">${label}</a>`
+        : label;
+    });
+    return html
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  }
+  function renderMarkdown(md) {
+    if (!md) return '<p style="color:var(--text-3)"><i>空白笔记，点击"编辑"开始书写</i></p>';
+    const lines = md.replace(/\r\n/g, '\n').split('\n');
+    let html = '';
+    let inCode = false, inCodeLines = [], tableRows = [];
+    const flushTable = () => {
+      if (tableRows.length < 3) { html += tableRows.join('<br>'); tableRows = []; return; }
+      const rows = tableRows.map((r, i) => {
+        if (/^\|?\s*:?-+:?\s*\|?\s*$/.test(r.trim().replace(/\s+/g, ''))) return null;
+        const cells = r.split('|').slice(1, -1);
+        const tag = i === 0 ? 'th' : 'td';
+        return `<tr>${cells.map(c => `<${tag}>${inlineMd(c.trim())}</${tag}>`).join('')}</tr>`;
+      }).filter(Boolean);
+      if (rows.length) {
+        html += `<table><thead>${rows[0]}</thead><tbody>${rows.slice(1).join('')}</tbody></table>`;
+      }
+      tableRows = [];
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (trimmed.startsWith('```')) {
+        if (inCode) { html += `<pre><code>${escMd(inCodeLines.join('\n'))}</code></pre>`; inCodeLines = []; inCode = false; }
+        else { inCode = true; inCodeLines = []; }
+        continue;
+      }
+      if (inCode) { inCodeLines.push(line); continue; }
+      flushTable();
+      const h = trimmed.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { html += `<h${h[1].length}>${inlineMd(h[2])}</h${h[1].length}>`; continue; }
+      if (tableRows.length) {
+        if (trimmed.startsWith('|')) { tableRows.push(trimmed); continue; }
+        else { flushTable(); }
+      }
+      if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+        tableRows.push(trimmed);
+        continue;
+      }
+      if (/^[-*]\s+/.test(trimmed) && !/^[-*]\s+\[[ xX]\]/.test(trimmed)) {
+        const items = [];
+        while (i < lines.length) {
+          const t2 = lines[i].trim();
+          if (t2 === '' || !/^[-*]\s+/.test(t2)) break;
+          items.push(t2.replace(/^[-*]\s+/, ''));
+          i++;
+        }
+        i--;
+        html += `<ul>${items.map(it => `<li>${inlineMd(it)}</li>`).join('')}</ul>`;
+        continue;
+      }
+      if (/^\d+\.\s+/.test(trimmed)) {
+        const items = [];
+        while (i < lines.length) {
+          const t2 = lines[i].trim();
+          if (t2 === '') break;
+          const m = t2.match(/^\d+\.\s+(.*)$/);
+          if (!m) break;
+          items.push(m[1]);
+          i++;
+        }
+        i--;
+        html += `<ol>${items.map(it => `<li>${inlineMd(it)}</li>`).join('')}</ol>`;
+        continue;
+      }
+      if (/\s*- \[[ xX]\]\s*/.test(trimmed)) {
+        const items = [];
+        while (i < lines.length) {
+          const t2 = lines[i].trim();
+          if (t2 === '') break;
+          const m = t2.match(/^- \[([ xX])\]\s*(.*)$/);
+          if (!m) break;
+          items.push(`<li><input type="checkbox" ${m[1].toLowerCase() === 'x' ? 'checked' : ''} disabled> ${inlineMd(m[2])}</li>`);
+          i++;
+        }
+        i--;
+        html += `<ul class="task-list">${items.join('')}</ul>`;
+        continue;
+      }
+      if (trimmed.startsWith('> ')) {
+        const quotes = [];
+        while (i < lines.length && lines[i].trim().startsWith('> ')) { quotes.push(lines[i].trim().slice(2)); i++; }
+        i--;
+        html += `<blockquote>${quotes.map(q => inlineMd(q)).join('<br>')}</blockquote>`;
+        continue;
+      }
+      if (trimmed === '---' || trimmed === '***') { html += '<hr>'; continue; }
+      if (trimmed === '') { continue; }
+      html += `<p>${inlineMd(line)}</p>`;
+    }
+    if (inCode) { flushTable(); html += `<pre><code>${escMd(inCodeLines.join('\n'))}</code></pre>`; }
+    flushTable();
+    return html;
+  }
+
+</script>
+</body>
+</html>
