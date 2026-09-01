@@ -25,6 +25,8 @@ const DEFAULT_CONFIG = {
     username: '',
     password: '',
     backupDir: 'todo-app-backups',
+    backupMode: 'daily',
+    dailyBackupTime: '00:10',
     autoEnabled: false,
     intervalHours: 24,
   },
@@ -48,6 +50,8 @@ function envDefaultConfig() {
       username: process.env.TODO_WEBDAV_USERNAME || process.env.JIANGUOYUN_USERNAME || '',
       password: process.env.TODO_WEBDAV_PASSWORD || process.env.JIANGUOYUN_PASSWORD || '',
       backupDir: process.env.TODO_WEBDAV_BACKUP_DIR || process.env.JIANGUOYUN_BACKUP_DIR || DEFAULT_CONFIG.webdav.backupDir,
+      backupMode: process.env.TODO_BACKUP_MODE || undefined,
+      dailyBackupTime: process.env.TODO_BACKUP_TIME || undefined,
       autoEnabled: /^(1|true|yes|on)$/i.test(process.env.TODO_BACKUP_AUTO || ''),
       intervalHours: Number(process.env.TODO_BACKUP_INTERVAL_HOURS) || DEFAULT_CONFIG.webdav.intervalHours,
     },
@@ -205,6 +209,10 @@ function normalizeConfig(config) {
   merged.webdav.password = String(merged.webdav.password || '');
   merged.webdav.backupDir = String(merged.webdav.backupDir || DEFAULT_CONFIG.webdav.backupDir).trim().replace(/^\/+|\/+$/g, '') || DEFAULT_CONFIG.webdav.backupDir;
   merged.webdav.autoEnabled = !!merged.webdav.autoEnabled;
+  merged.webdav.backupMode = ['daily', 'interval'].includes(merged.webdav.backupMode) ? merged.webdav.backupMode : 'daily';
+  merged.webdav.dailyBackupTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(merged.webdav.dailyBackupTime || ''))
+    ? String(merged.webdav.dailyBackupTime)
+    : DEFAULT_CONFIG.webdav.dailyBackupTime;
   merged.webdav.intervalHours = Math.max(1, Number(merged.webdav.intervalHours) || DEFAULT_CONFIG.webdav.intervalHours);
   return merged;
 }
@@ -262,6 +270,8 @@ function publicAppConfig(config = getFullConfig()) {
       username: config.webdav.username,
       passwordConfigured: !!config.webdav.password,
       backupDir: config.webdav.backupDir,
+      backupMode: config.webdav.backupMode,
+      dailyBackupTime: config.webdav.dailyBackupTime,
       autoEnabled: config.webdav.autoEnabled,
       intervalHours: config.webdav.intervalHours,
       configured: isWebdavConfigured(config.webdav),

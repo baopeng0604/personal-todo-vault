@@ -1170,7 +1170,22 @@
           <span>备份目录</span>
           <input class="modal-input" type="text" id="webdavBackupDirInput" placeholder="todo-app-backups">
         </label>
-        <label class="settings-field">
+        <div class="settings-field settings-field-wide" id="webdavModeRow">
+          <span>备份模式</span>
+          <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:0.85rem;color:var(--text-1)">
+            <label style="display:flex;align-items:center;gap:6px">
+              <input type="radio" name="webdavBackupMode" value="daily" onchange="toggleBackupModeFields()"> 每日备份（有变化才备份，保留最近 10 份）
+            </label>
+            <label style="display:flex;align-items:center;gap:6px">
+              <input type="radio" name="webdavBackupMode" value="interval" onchange="toggleBackupModeFields()"> 按间隔备份（有变化才备份，保留最近 10 份）
+            </label>
+          </div>
+        </div>
+        <label class="settings-field" id="webdavDailyTimeRow">
+          <span>每日备份时间</span>
+          <input class="modal-input" type="time" id="webdavDailyTimeInput" value="00:10">
+        </label>
+        <label class="settings-field" id="webdavIntervalRow">
           <span>自动备份间隔（小时）</span>
           <input class="modal-input" type="number" id="webdavIntervalInput" min="1" step="1" placeholder="24">
         </label>
@@ -1505,6 +1520,7 @@
     const webdav = settings.webdav;
     const setVal = (id, value = '') => { const el = document.getElementById(id); if (el) el.value = value ?? ''; };
     const setChecked = (id, value) => { const el = document.getElementById(id); if (el) el.checked = !!value; };
+    const setRadio = (name, value) => { const el = document.querySelector(`input[name="${name}"][value="${value}"]`); if (el) el.checked = true; };
 
     setChecked('emailEnabledToggle', email.enabled);
     setVal('checkTimeInput', email.checkTime || '09:00');
@@ -1523,7 +1539,10 @@
     setVal('webdavBaseUrlInput', webdav.baseUrl || 'https://dav.jianguoyun.com/dav/');
     setVal('webdavUsernameInput', webdav.username || '');
     setVal('webdavBackupDirInput', webdav.backupDir || 'todo-app-backups');
+    setRadio('webdavBackupMode', webdav.backupMode === 'interval' ? 'interval' : 'daily');
+    setVal('webdavDailyTimeInput', webdav.dailyBackupTime || '00:10');
     setVal('webdavIntervalInput', webdav.intervalHours || 24);
+    toggleBackupModeFields();
     setChecked('webdavAutoEnabledToggle', webdav.autoEnabled);
     setVal('webdavPasswordInput', '');
     const webdavPasswordInput = document.getElementById('webdavPasswordInput');
@@ -1551,6 +1570,8 @@
         baseUrl: value('webdavBaseUrlInput') || 'https://dav.jianguoyun.com/dav/',
         username: value('webdavUsernameInput'),
         backupDir: value('webdavBackupDirInput') || 'todo-app-backups',
+        backupMode: document.querySelector('input[name="webdavBackupMode"]:checked')?.value || 'daily',
+        dailyBackupTime: value('webdavDailyTimeInput') || '00:10',
         autoEnabled: checked('webdavAutoEnabledToggle'),
         intervalHours: Number(value('webdavIntervalInput')) || 24,
       },
@@ -1627,6 +1648,14 @@
     return (bytes / 1024 / 1024).toFixed(1) + ' MB';
   }
 
+  function toggleBackupModeFields() {
+    const mode = document.querySelector('input[name="webdavBackupMode"]:checked')?.value || 'daily';
+    const dailyRow = document.getElementById('webdavDailyTimeRow');
+    const intervalRow = document.getElementById('webdavIntervalRow');
+    if (dailyRow) dailyRow.style.display = mode === 'daily' ? '' : 'none';
+    if (intervalRow) intervalRow.style.display = mode === 'interval' ? '' : 'none';
+  }
+
   function renderBackupStatus() {
     const settingsWebdav = normalizeSettings(settings).webdav;
     const status = { ...settingsWebdav, ...(backupStatus || {}) };
@@ -1637,7 +1666,10 @@
     const btn = document.getElementById('backupNowBtn');
     if (btn) btn.disabled = !configured;
     if (meta) {
-      meta.textContent = `目录：${status.backupDir || 'todo-app-backups'} · 增量上传 / 完整快照 · ${status.autoEnabled ? `自动备份：每 ${status.intervalHours || 24} 小时` : '自动备份：未启用'}`;
+      const modeText = (status.backupMode === 'interval')
+        ? `按间隔：每 ${status.intervalHours || 24} 小时（有变化才备份，保留最近 10 份）`
+        : `每日 ${status.dailyBackupTime || '00:10'}（有变化才备份，保留最近 10 份）`;
+      meta.textContent = `目录：${status.backupDir || 'todo-app-backups'} · 增量上传 / 完整快照 · ${status.autoEnabled ? `自动备份：${modeText}` : '自动备份：未启用'}`;
     }
 
     const lastBackup = status.lastBackup || backupStatus?.lastBackup;

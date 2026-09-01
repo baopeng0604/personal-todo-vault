@@ -16,7 +16,7 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 - 明暗主题、响应式布局
 - 单次、每周指定星期和按次数重复的邮件提醒
 - 页面统一配置、保存和测试 SMTP 与坚果云 WebDAV
-- 数据库与 Markdown 笔记的内容寻址增量备份
+- 数据库与 Markdown 笔记的云端备份：默认「每日备份」有变化才上传带日期的 gzip 快照并保留最近 10 份，可切换为按间隔的内容寻址增量备份
 
 ## 3. 交互与视觉
 
@@ -42,7 +42,7 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 - **Database:** `sql.js`（SQLite WebAssembly）
 - **Email:** `nodemailer`
 - **Storage:** `todo.db`、`notes/<todo-id>.md`
-- **Optional backup:** 坚果云 WebDAV
+- **Optional backup:** 坚果云 WebDAV（每日带日期快照 / 按间隔增量备份，二选一）
 
 默认监听 `127.0.0.1:8238`；设置 `HOST=0.0.0.0` 后才监听全部网卡。由于当前版本没有内置用户认证和多用户隔离，公开网络部署必须通过 VPN 或带身份验证的反向代理保护。
 
@@ -61,6 +61,19 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 ### 4.3 配置保护
 
 页面配置统一写入 `config.local.json`。配置包使用 AES-256-GCM 加密，密钥保存在本机 `config.local.key` 或由 `TODO_CONFIG_SECRET` 提供。API 只返回配置是否已设置，不返回密码。
+
+### 4.4 云端备份
+
+通过 `webdav.backupMode` 选择一种备份模式；两种模式共用同一套「有变化才备份 + 带日期快照 + 保留最近 10 份」逻辑，仅触发调度不同：
+
+- **`daily`（默认，每日备份）**：每天在 `webdav.dailyBackupTime`（默认 `00:10`）触发一次。
+- **`interval`（按间隔备份）**：每 `webdav.intervalHours` 小时检测一次。
+
+触发后先计算数据库与全部笔记的 SHA-256 汇总并与本地 `backups/daily-state.json` 对比，无变化则跳过；有变化则把 `todo.db.gz` 与各笔记 `.md.gz` 上传到 `daily/<yyyy-MM-dd>/`（同一天多次变化会覆盖当天目录）。远端仅保留最近 10 个日期目录，更早的自动 `DELETE`。
+
+手动「立即备份」（`/api/backup/run`）仍使用内容寻址增量上传（`objects/` + `snapshots/` + `latest.json`），不参与自动调度。
+
+两种模式均使用 WebDAV Basic Auth 与 gzip 压缩，密码不随备份上传。
 
 ## 5. 数据模型
 
@@ -130,12 +143,13 @@ personal-todo-vault/
 ├── sqlite.js       # SQLite 初始化、迁移与原子保存
 ├── index.html      # 主页面与 Markdown 编辑/预览
 ├── appConfig.js    # 加密配置读写与脱敏输出
-├── cloudBackup.js  # WebDAV 内容寻址增量备份
+├── cloudBackup.js  # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js        # SMTP 邮件发送
 ├── todo.db         # 运行时数据库，不提交
 ├── notes/          # 运行时 Markdown 笔记，不提交
 ├── backups/        # 自动生成的数据库备份，不提交
 ├── data.json       # 旧版迁移来源，不提交
+├── agents.md       # 仓库约定：代码变动须同步更新相关文档
 ├── README.md       # 使用与部署说明
 └── SPEC.md         # 产品与技术规格
 ```

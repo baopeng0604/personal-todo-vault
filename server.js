@@ -33,7 +33,7 @@ const { initDB, closeDB, saveDB,
   getSettings, saveSettings, migrateFromJSON } = require('./sqlite.js');
 const { sendEmail, sendTestEmail } = require('./email.js');
 const { getFullConfig, saveAppConfig, publicAppConfig, isEmailConfigured, migrateStoredConfigSecrets } = require('./appConfig.js');
-const { getBackupConfig, publicBackupStatus, testBackupConfig, uploadBackup } = require('./cloudBackup.js');
+const { getBackupConfig, publicBackupStatus, testBackupConfig, uploadBackup, uploadDailyBackup } = require('./cloudBackup.js');
 
 // ── MIME 类型 ────────────────────────────────────────────
 const MIME = {
@@ -257,6 +257,14 @@ function cleanSettingsPatch(payload = {}) {
   if (webdav.backupDir !== undefined) patch.webdav.backupDir = cleanString(webdav.backupDir, 200);
   if (webdav.autoEnabled !== undefined) patch.webdav.autoEnabled = !!webdav.autoEnabled;
   if (webdav.intervalHours !== undefined) patch.webdav.intervalHours = Math.max(1, Number(webdav.intervalHours) || 24);
+  if (webdav.backupMode !== undefined) {
+    if (!['daily', 'interval'].includes(webdav.backupMode)) throw new Error('备份模式必须是 daily 或 interval');
+    patch.webdav.backupMode = webdav.backupMode;
+  }
+  if (webdav.dailyBackupTime !== undefined) {
+    if (!isValidTime(webdav.dailyBackupTime)) throw new Error('每日备份时间必须是 HH:MM 格式');
+    patch.webdav.dailyBackupTime = webdav.dailyBackupTime;
+  }
 
   if (patch.email.checkTime !== undefined && !isValidTime(patch.email.checkTime)) {
     throw new Error('每日检查时间必须是 HH:MM 格式');
@@ -319,7 +327,7 @@ const server = http.createServer(async (req, res) => {
         const config = saveAppConfig(cleanSettingsPatch(payload));
         saveSettings(config.email.enabled, config.email.checkTime); // keep legacy DB settings in sync
         if (config.email.enabled && isEmailConfigured(config.email)) startCron(); else stopCron();
-        startBackupTimer();
+        startBackupScheduler();
         jsonResR(settingsResponse(config));
       } catch (e) { jsonResR({ error: e.message }, 400); }
     });
@@ -649,30 +657,77 @@ function startCron() {
 }
 
 
-// ── Cloud backup timer ───────────────────────────────────
+// ── Cloud backup scheduler（每日凌晨 / 按间隔，二选一）──────
 let backupTimer = null;
 let lastBackup = null;
 
-function stopBackupTimer() {
-  if (backupTimer) { clearInterval(backupTimer); backupTimer = null; console.log('[BACKUP] stopped'); }
+function stopBackupScheduler() {
+  if (backupTimer) {
+    clearInterval(backupTimer);
+    clearTimeout(backupTimer);
+    backupTimer = null;
+    console.log('[BACKUP] stopped');
+  }
 }
 
-function startBackupTimer() {
-  stopBackupTimer();
+function msUntilNextTime(hhmm) {
+  const [hour, minute] = String(hhmm || '00:10').split(':').map(Number);
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+async function runDailyAutoBackup() {
+  try {
+    saveDB();
+    lastBackup = await uploadDailyBackup(BACKUP_PATHS, getBackupConfig());
+    if (lastBackup.changed) {
+      console.log(`[BACKUP] daily uploaded: ${lastBackup.remotePath} (${lastBackup.noteCount} notes)${lastBackup.deletedOld?.length ? `, cleaned ${lastBackup.deletedOld.length} old` : ''}`);
+    } else {
+      console.log('[BACKUP] daily skipped: no data change');
+    }
+  } catch (e) {
+    lastBackup = { success: false, error: e.message, createdAt: new Date().toISOString() };
+    console.error('[BACKUP] daily failed:', e.message);
+  }
+}
+
+function startBackupScheduler() {
+  stopBackupScheduler();
   const config = getBackupConfig();
   if (!config.configured || !config.autoEnabled) return;
-  const intervalMs = config.intervalHours * 60 * 60 * 1000;
-  backupTimer = setInterval(async () => {
-    try {
-      saveDB();
-      lastBackup = await uploadBackup(BACKUP_PATHS, getBackupConfig());
-      console.log(`[BACKUP] uploaded: ${lastBackup.remotePath}`);
-    } catch (e) {
-      lastBackup = { success: false, error: e.message, createdAt: new Date().toISOString() };
-      console.error('[BACKUP] failed:', e.message);
-    }
-  }, intervalMs);
-  console.log(`[BACKUP] auto enabled: every ${config.intervalHours}h`);
+
+  if (config.backupMode === 'interval') {
+    const intervalMs = config.intervalHours * 60 * 60 * 1000;
+    backupTimer = setInterval(async () => {
+      try {
+        saveDB();
+        lastBackup = await uploadDailyBackup(BACKUP_PATHS, getBackupConfig());
+        if (lastBackup.changed) {
+          console.log(`[BACKUP] uploaded: ${lastBackup.remotePath} (${lastBackup.noteCount} notes)${lastBackup.deletedOld?.length ? `, cleaned ${lastBackup.deletedOld.length} old` : ''}`);
+        } else {
+          console.log('[BACKUP] skipped: no data change');
+        }
+      } catch (e) {
+        lastBackup = { success: false, error: e.message, createdAt: new Date().toISOString() };
+        console.error('[BACKUP] failed:', e.message);
+      }
+    }, intervalMs);
+    console.log(`[BACKUP] interval enabled: every ${config.intervalHours}h, backup only on data change, keep last 10`);
+    return;
+  }
+
+  // 默认「每日备份」模式：每天凌晨 dailyBackupTime 触发一次，有变化才备份。
+  const scheduleNext = () => {
+    backupTimer = setTimeout(async () => {
+      await runDailyAutoBackup();
+      scheduleNext();
+    }, msUntilNextTime(config.dailyBackupTime));
+  };
+  scheduleNext();
+  const nextRun = new Date(Date.now() + msUntilNextTime(config.dailyBackupTime));
+  console.log(`[BACKUP] daily enabled: next run at ${nextRun.toLocaleString()} (${config.dailyBackupTime})`);
 }
 
 // ── 启动 ─────────────────────────────────────────────────
@@ -685,7 +740,7 @@ async function bootstrap() {
     const smtpReady = isEmailConfigured(appConfig.email);
     console.log(`[TODO] SMTP: ${smtpReady}, emailEnabled: ${appConfig.email.enabled}`);
     if (appConfig.email.enabled && smtpReady) startCron();
-    startBackupTimer();
+    startBackupScheduler();
   } catch (e) {
     console.error('[TODO] Bootstrap error:', e.message);
     process.exit(1);
@@ -695,5 +750,5 @@ async function bootstrap() {
 bootstrap();
 server.listen(PORT, HOST, () => console.log(`TODO App → http://${HOST}:${PORT}`));
 
-process.on('SIGTERM', () => { stopBackupTimer(); closeDB(); process.exit(0); });
-process.on('SIGINT',  () => { stopBackupTimer(); closeDB(); process.exit(0); });
+process.on('SIGTERM', () => { stopBackupScheduler(); closeDB(); process.exit(0); });
+process.on('SIGINT',  () => { stopBackupScheduler(); closeDB(); process.exit(0); });

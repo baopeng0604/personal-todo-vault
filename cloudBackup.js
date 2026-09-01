@@ -11,6 +11,7 @@ const PROVIDER = 'jianguoyun';
 const DEFAULT_BACKUP_DIR = 'todo-app-backups';
 const DEFAULT_TIMEOUT_MS = 30000;
 const BACKUP_SCHEMA_VERSION = 2;
+const MAX_DAILY_BACKUPS = 10;
 
 function getBackupConfig(extra = {}) {
   const patch = extra.webdav ? extra : { webdav: extra };
@@ -19,6 +20,8 @@ function getBackupConfig(extra = {}) {
     provider: PROVIDER,
     baseUrl: webdav.baseUrl || DEFAULT_WEBDAV_URL,
     backupDir: trimSlashes(webdav.backupDir) || DEFAULT_BACKUP_DIR,
+    backupMode: ['daily', 'interval'].includes(webdav.backupMode) ? webdav.backupMode : 'daily',
+    dailyBackupTime: webdav.dailyBackupTime || '00:10',
     usernameConfigured: !!webdav.username,
     passwordConfigured: !!webdav.password,
     configured: !!(webdav.username && webdav.password && webdav.baseUrl),
@@ -34,6 +37,8 @@ function publicBackupStatus(config = getBackupConfig()) {
     provider: config.provider,
     baseUrl: config.baseUrl,
     backupDir: config.backupDir,
+    backupMode: config.backupMode,
+    dailyBackupTime: config.dailyBackupTime,
     configured: config.configured,
     usernameConfigured: config.usernameConfigured,
     passwordConfigured: config.passwordConfigured,
@@ -59,6 +64,11 @@ function joinUrl(base, ...parts) {
 function timestampForFile(date = new Date()) {
   const pad = n => String(n).padStart(2, '0');
   return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+function dateKeyForFile(date = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function sha256(buffer) {
@@ -189,6 +199,35 @@ async function remoteExists(config, relativePath) {
   if ([200, 204].includes(res.statusCode)) return true;
   if (res.statusCode === 404) return false;
   throw new Error(`检查远程文件失败（HTTP ${res.statusCode}）：${relativePath}`);
+}
+
+async function listRemoteDir(config, relativePath) {
+  const res = await webdavRequest(
+    'PROPFIND',
+    joinUrl(config.baseUrl, config.backupDir, relativePath),
+    config,
+    null,
+    { Depth: '1', 'Content-Type': 'application/xml' },
+  );
+  if (![207, 200].includes(res.statusCode)) {
+    throw new Error(`列出远程目录失败（HTTP ${res.statusCode}）：${relativePath}`);
+  }
+  const names = [];
+  const hrefRe = /<(?:d:)?href>([^<]+)<\/(?:d:)?href>/gi;
+  let match;
+  while ((match = hrefRe.exec(res.body)) !== null) {
+    const segment = decodeURIComponent(match[1].split('/').filter(Boolean).pop() || '');
+    if (segment) names.push(segment);
+  }
+  return names;
+}
+
+async function deleteRemote(config, relativePath) {
+  const res = await webdavRequest('DELETE', joinUrl(config.baseUrl, config.backupDir, relativePath), config);
+  if (![200, 204, 404].includes(res.statusCode)) {
+    throw new Error(`删除远程目录失败（HTTP ${res.statusCode}）：${relativePath}`);
+  }
+  return res.statusCode !== 404;
 }
 
 async function putObjectIfMissing(config, relativePath, body, contentType) {
@@ -345,9 +384,103 @@ async function uploadBackup(paths, config = getBackupConfig()) {
   };
 }
 
+async function uploadDailyBackup(paths, config = getBackupConfig()) {
+  if (!config.configured) {
+    throw new Error('坚果云 WebDAV 未配置完整，请填写账号和应用密码');
+  }
+  const startedAt = Date.now();
+  const { rootDir, dbFile, notesDir } = paths;
+  if (!fs.existsSync(dbFile)) throw new Error(`数据库文件不存在：${dbFile}`);
+
+  const dailyDir = 'daily';
+  await ensureRemoteDirs(config, [config.backupDir, `${config.backupDir}/${dailyDir}`]);
+
+  const dbContent = fs.readFileSync(dbFile);
+  const dbHash = sha256(dbContent);
+  const notes = listNoteFiles(notesDir);
+  const notesHash = sha256(Buffer.concat(notes.map(note => note.content)));
+  const stateFile = path.join(rootDir, 'backups', 'daily-state.json');
+
+  let previousState = null;
+  try {
+    if (fs.existsSync(stateFile)) previousState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  } catch (_) { /* ignore corrupt state */ }
+
+  if (previousState && previousState.dbHash === dbHash && previousState.notesHash === notesHash) {
+    return {
+      success: true,
+      changed: false,
+      skipped: true,
+      reason: 'no-data-change',
+      provider: config.provider,
+      durationMs: Date.now() - startedAt,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  const date = dateKeyForFile();
+  const dateDir = `${dailyDir}/${date}`;
+  await ensureRemoteDirs(config, [`${config.backupDir}/${dateDir}`, `${config.backupDir}/${dateDir}/notes`]);
+
+  let bytesUploaded = 0;
+  const putFile = async (relativePath, content, contentType) => {
+    const res = await webdavRequest(
+      'PUT',
+      joinUrl(config.baseUrl, config.backupDir, relativePath),
+      config,
+      content,
+      { 'Content-Type': contentType, 'Content-Length': content.length },
+    );
+    if (![200, 201, 204, 409].includes(res.statusCode)) {
+      throw new Error(`上传每日备份失败（HTTP ${res.statusCode}）：${relativePath} ${res.body.slice(0, 160)}`);
+    }
+    if (res.statusCode !== 409) bytesUploaded += content.length;
+  };
+
+  await putFile(`${dateDir}/todo.db.gz`, gzipBuffer(dbContent), 'application/gzip');
+  for (const note of notes) {
+    await putFile(`${dateDir}/notes/${note.name}.gz`, gzipBuffer(note.content), 'application/gzip');
+  }
+
+  const nextState = { date, dbHash, notesHash, backedUpAt: new Date().toISOString() };
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  const stateTmp = `${stateFile}.${process.pid}.tmp`;
+  fs.writeFileSync(stateTmp, JSON.stringify(nextState, null, 2) + '\n', 'utf8');
+  fs.renameSync(stateTmp, stateFile);
+
+  // 保留策略：只保留最近 MAX_DAILY_BACKUPS 份日期目录，更早的自动清理。
+  const deletedOld = [];
+  const remoteNames = await listRemoteDir(config, dailyDir);
+  const dateDirs = remoteNames
+    .map(name => name.replace(/\/+$/, ''))
+    .filter(name => /^\d{4}-\d{2}-\d{2}$/.test(name))
+    .sort();
+  const toDelete = dateDirs.slice(0, Math.max(0, dateDirs.length - MAX_DAILY_BACKUPS));
+  for (const oldDate of toDelete) {
+    await deleteRemote(config, `${dailyDir}/${oldDate}`);
+    deletedOld.push(oldDate);
+  }
+
+  return {
+    success: true,
+    provider: config.provider,
+    strategy: 'dated-daily-snapshot',
+    date,
+    filename: 'todo.db.gz',
+    remotePath: `${config.backupDir}/${dateDir}`,
+    bytes: bytesUploaded,
+    noteCount: notes.length,
+    changed: true,
+    deletedOld,
+    durationMs: Date.now() - startedAt,
+    createdAt: nextState.backedUpAt,
+  };
+}
+
 module.exports = {
   getBackupConfig,
   publicBackupStatus,
   testBackupConfig,
   uploadBackup,
+  uploadDailyBackup,
 };

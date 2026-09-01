@@ -11,7 +11,7 @@
 - **个人优先、数据在自己手里**：运行数据是本机 SQLite 数据库和 Markdown 文件；无需注册第三方账户，也不把待办上传到应用服务商。
 - **为长期事项设计的进度与提醒**：支持 0–100% 进度，达到 100% 自动完成；提醒可单次、每周指定星期持续重复，或按指定次数重复。
 - **安全的配置中心**：邮件和坚果云设置均在页面中保存、测试；密码不会回显，保存时使用 AES-256-GCM 加密，密钥与配置文件均不进入 Git。
-- **适合自托管的云端备份**：数据库和每份 Markdown 笔记分别进行 SHA-256 内容寻址、gzip 压缩和增量上传；每次备份保留完整快照清单，不是简单覆盖一个压缩包。
+- **适合自托管的云端备份**：默认「每日备份」——每天凌晨检测到数据有变化时，才上传一个带日期的 gzip 快照并只保留最近 10 份；也可切换为原「按间隔增量备份」模式。数据库和每份 Markdown 笔记分别进行 SHA-256 内容寻址、gzip 压缩和增量上传。
 - **低依赖、便于私有部署**：原生 HTML/CSS/JavaScript + Node.js 原生 HTTP + SQLite WASM，部署和迁移简单。
 
 ## 功能一览
@@ -23,8 +23,8 @@
 - 完成进度概览，重点展示当前待完成工作
 - 明暗主题与移动端适配
 - 邮件提醒：单次、每周指定星期、指定次数重复；已完成待办自动停止提醒
-- 配置中心：SMTP、收件人、坚果云 WebDAV、自动备份间隔，均可保存和测试
-- 坚果云 WebDAV 增量备份数据库与 Markdown 笔记
+- 配置中心：SMTP、收件人、坚果云 WebDAV、备份模式与每日备份时间，均可保存和测试
+- 坚果云 WebDAV 备份：默认「每日备份」或「按间隔备份」均有变化才上传带日期的 gzip 快照，保留最近 10 份
 - SQLite 原子写入、本地滚动备份（默认保留最近 10 份）
 - 兼容从旧版 `data.json` 迁移到 SQLite
 
@@ -213,6 +213,23 @@ todo-app-backups/
 - 这是**单向备份**，不是双向同步。请不要直接在坚果云目录中编辑对象文件。
 - WebDAV 密码和本机配置密钥不会上传到坚果云。
 
+#### 带日期的快照备份（两种模式共用）
+
+配置中心的「备份模式」可选**每日备份**（默认）或**按间隔备份**；两者都产生按日期组织的快照，区别只在触发频率：
+
+```text
+todo-app-backups/
+└── daily/
+    └── 2026-09-02/
+        ├── todo.db.gz
+        └── notes/<笔记名>.md.gz
+```
+
+- 每日备份：每天在指定时间（默认 `00:10`）自动执行一次；按间隔备份：每 `intervalHours` 小时检测一次。两者都可点击「立即备份」手动触发。
+- 只有当数据库或笔记内容相比上次发生**新增、删除或更改**时才会上传；没有变化则跳过，不产生网络请求和额外存储。
+- 只保留**最近 10 份**日期目录，更早的会自动从坚果云清理，避免磁盘与云端空间无限增长。
+- 本地状态记录在 `backups/daily-state.json`，用于判断数据是否变化。
+
 ## 数据与隐私
 
 以下文件全部是运行时私有数据，默认被 Git 忽略：
@@ -258,6 +275,10 @@ TODO_WEBDAV_URL=https://dav.jianguoyun.com/dav/
 TODO_WEBDAV_USERNAME=your-jianguoyun-account@example.com
 TODO_WEBDAV_PASSWORD=your-jianguoyun-app-password
 TODO_WEBDAV_BACKUP_DIR=todo-app-backups
+# daily = 每日备份（默认，固定时间触发）；interval = 按间隔备份；两者均有变化才备份并保留最近 10 份
+TODO_BACKUP_MODE=daily
+# 每日备份时间（仅 daily 模式生效，24 小时制 HH:MM）
+TODO_BACKUP_TIME=00:10
 TODO_BACKUP_AUTO=false
 TODO_BACKUP_INTERVAL_HOURS=24
 ```
@@ -269,7 +290,7 @@ TODO_BACKUP_INTERVAL_HOURS=24
 - 若首次启动时不存在 `todo.db`、但根目录存在旧版 `data.json`，服务会自动迁移数据到 SQLite。
 - 已存在 `todo.db` 时不会重复导入 `data.json`。
 - 本地保存采用临时文件、`fsync` 和原子替换，并保留最近 10 份滚动数据库备份。
-- 坚果云备份目前提供增量上传与完整快照清单；恢复流程应根据快照清单取回相应数据库/笔记对象。执行恢复前，请先停止服务并备份现有运行目录。
+- 坚果云备份支持两种模式：**每日备份**与**按间隔备份**，均在有数据变化时上传带日期的 gzip 快照并保留最近 10 份；恢复流程应取回相应日期目录下的数据库/笔记对象。执行恢复前，请先停止服务并备份现有运行目录。
 
 ## API 概览
 
@@ -297,14 +318,15 @@ TODO_BACKUP_INTERVAL_HOURS=24
 ```text
 personal-todo-vault/
 ├── appConfig.js       # 加密的本地配置读取、保存与脱敏输出
-├── cloudBackup.js     # WebDAV 内容寻址增量备份
+├── cloudBackup.js     # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js           # SMTP 邮件与测试邮件
 ├── index.html         # 前端页面（原生 HTML/CSS/JS）
-├── server.js          # HTTP API、提醒与备份定时器
+├── server.js          # HTTP API、提醒与备份定时器（每日/间隔模式调度）
 ├── sqlite.js          # SQLite 初始化、迁移与原子保存
 ├── sql-wasm.*         # SQLite WASM 运行时
 ├── notes/.gitkeep     # 空笔记目录占位；真实笔记不提交
 ├── .env.example       # 不含秘密的环境变量示例
+├── agents.md          # 仓库约定：代码变动须同步更新相关文档
 ├── SPEC.md            # 产品与技术规格
 └── package.json       # Node.js 依赖与脚本
 ```
