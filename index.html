@@ -1498,6 +1498,27 @@
   setInterval(refreshLogStatus, 10000);
   switchPage(currentPage()); // 初始进入（支持直接访问 /#/logs）
 
+  // 多端实时同步：任一页面改动数据后，服务端广播 changed，这里收到后重新拉取数据
+  let syncWs = null, syncReconnectTimer = null;
+  function startSync() {
+    if (syncWs) return;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(proto + '://' + location.host + '/sync/ws');
+    syncWs = ws;
+    ws.onmessage = (ev) => {
+      let m;
+      try { m = JSON.parse(ev.data); } catch (_) { return; }
+      if (m.type === 'changed') loadData(); // 有数据更新 → 重拉
+    };
+    ws.onclose = () => {
+      syncWs = null;
+      clearTimeout(syncReconnectTimer);
+      syncReconnectTimer = setTimeout(startSync, 2000); // 断线自动重连
+    };
+    ws.onerror = () => { try { ws.close(); } catch (_) { /* ignore */ } };
+  }
+  startSync(); // 一开始就订阅，任意标签页都能收到更新
+
   const API = '/api';
   let categories = [];
   let todos = [];

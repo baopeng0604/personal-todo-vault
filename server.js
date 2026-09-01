@@ -36,6 +36,7 @@ const { sendEmail, sendTestEmail } = require('./email.js');
 const { getFullConfig, saveAppConfig, publicAppConfig, isEmailConfigured, migrateStoredConfigSecrets } = require('./appConfig.js');
 const { getBackupConfig, publicBackupStatus, testBackupConfig, uploadBackup, uploadDailyBackup } = require('./cloudBackup.js');
 const loghub = require('./loghub.js');
+const syncHub = require('./syncHub.js');
 
 // ── MIME 类型 ────────────────────────────────────────────
 const MIME = {
@@ -288,6 +289,9 @@ const server = http.createServer(async (req, res) => {
   const pathname = parsed.pathname;
   const jsonResR = (data, code = 200) => jsonRes(res, data, code);
 
+  // 数据变更广播：写操作成功后通知所有打开的前端页面。仅写操作调用，GET 不调用，避免广播风暴与死循环。
+  const changed = () => syncHub.broadcast();
+
   // ── 运行日志控制台（/console 等）────────────────────
   if (loghub.handleHttp(pathname, req, res)) return;
 
@@ -335,6 +339,7 @@ const server = http.createServer(async (req, res) => {
         if (config.email.enabled && isEmailConfigured(config.email)) startCron(); else stopCron();
         startBackupScheduler();
         jsonResR(settingsResponse(config));
+        changed();
       } catch (e) { jsonResR({ error: e.message }, 400); }
     });
     return;
@@ -405,7 +410,7 @@ const server = http.createServer(async (req, res) => {
     withBody(async ({ name, icon }) => {
       if (!isNonEmptyString(name, 80)) { jsonResR({ error: '名称必须是 1-80 个字符的非空字符串' }, 400); return; }
       if (icon !== undefined && typeof icon !== 'string') { jsonResR({ error: '图标必须是字符串' }, 400); return; }
-      try { jsonResR(createCategory(name.trim(), icon?.trim() || '📋')); }
+      try { jsonResR(createCategory(name.trim(), icon?.trim() || '📋')); changed(); }
       catch (e) { jsonResR({ error: e.message }, 500); }
     });
     return;
@@ -417,7 +422,7 @@ const server = http.createServer(async (req, res) => {
       if (!Array.isArray(order) || order.some(id => typeof id !== 'string')) {
         jsonResR({ error: 'order must be an array of category ids' }, 400); return;
       }
-      try { reorderCategories(order); jsonResR({ success: true }); }
+      try { reorderCategories(order); jsonResR({ success: true }); changed(); }
       catch (e) { jsonResR({ error: e.message }, 500); }
     });
     return;
@@ -440,7 +445,7 @@ const server = http.createServer(async (req, res) => {
         if (name === undefined && icon === undefined) {
           jsonResR({ error: '至少提供 name 或 icon' }, 400); return;
         }
-        try { jsonResR(updateCategory(id, name?.trim(), icon?.trim())); }
+        try { jsonResR(updateCategory(id, name?.trim(), icon?.trim())); changed(); }
         catch (e) { jsonResR({ error: e.message }, 500); }
       });
       return;
@@ -450,6 +455,7 @@ const server = http.createServer(async (req, res) => {
         getTodos(id).forEach(removeTodoNote);
         deleteCategory(id);
         jsonResR({ success: true });
+        changed();
       } catch (e) { jsonResR({ error: e.message }, 500); }
       return;
     }
@@ -472,7 +478,7 @@ const server = http.createServer(async (req, res) => {
         if (!selectedCategoryId || !hasCategory(selectedCategoryId)) {
           jsonResR({ error: 'Category not found' }, 400); return;
         }
-        try { jsonResR(createTodo(title.trim(), selectedCategoryId)); }
+        try { jsonResR(createTodo(title.trim(), selectedCategoryId)); changed(); }
         catch (e) { jsonResR({ error: e.message }, 500); }
       });
       return;
@@ -556,12 +562,13 @@ const server = http.createServer(async (req, res) => {
           }
           const result = updateTodo(id, kw);
           jsonResR(result || { error: 'Todo not found' }, result ? 200 : 404);
+          if (result) changed();
         } catch (e) { jsonResR({ error: e.message }, 500); }
       });
       return;
     }
     if (req.method === 'DELETE') {
-      try { removeTodoNote(todo); deleteTodo(id); jsonResR({ success: true }); }
+      try { removeTodoNote(todo); deleteTodo(id); jsonResR({ success: true }); changed(); }
       catch (e) { jsonResR({ error: e.message }, 500); }
       return;
     }
@@ -590,6 +597,7 @@ const server = http.createServer(async (req, res) => {
           writeTextAtomic(filepath, content);
           if (todo.noteFile !== noteFile) updateTodo(id, { noteFile });
           jsonResR({ id, noteFile, success: true });
+          changed();
         } catch (e) { jsonResR({ error: e.message }, 500); }
       }, MAX_NOTE_BODY_BYTES);
       return;
@@ -778,6 +786,8 @@ server.on('upgrade', (req, socket) => {
   const pathname = url.parse(req.url).pathname;
   if (pathname === '/console/ws') {
     loghub.attachWebSocket(req, socket);
+  } else if (pathname === '/sync/ws') {
+    syncHub.attachSocket(req, socket);
   } else {
     socket.destroy();
   }

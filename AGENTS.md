@@ -44,8 +44,9 @@ personal-todo-vault/
 ├── appConfig.js       # 加密配置读取、保存、脱敏输出
 ├── cloudBackup.js     # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js           # SMTP 邮件与测试邮件
-├── index.html         # 工作台式前端页面（导航 + 待办 + 运行日志）
+├── index.html         # 工作台式前端页面（导航 + 待办 + 运行日志 + 实时同步）
 ├── loghub.js          # 日志汇聚 + WebSocket 实时控制台
+├── syncHub.js         # 数据变更广播 WebSocket（多端实时同步）
 ├── server.js          # HTTP API、提醒与备份定时器（每日/间隔模式调度）
 ├── sqlite.js          # SQLite 初始化、迁移与原子保存
 ├── deploy/

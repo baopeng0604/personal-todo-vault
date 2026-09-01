@@ -28,6 +28,7 @@
 - SQLite 原子写入、本地滚动备份（默认保留最近 10 份）
 - 工作台式多页面界面：侧边导航 + hash 路由，待办清单与运行日志等页面互相切换
 - 运行日志控制台：通过 WebSocket 实时推送服务器输出，辅助排查错误（支持访问口令）
+- 多端实时同步：任一打开的页面增删改数据后，其他页面自动刷新，无需手动刷新（服务端推送）
 - Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像并生成 systemd 后台服务；也可按 `deploy/step*.sh` 分步执行
 - 兼容从旧版 `data.json` 迁移到 SQLite
 
@@ -42,6 +43,7 @@
 | 笔记 | 本地 `notes/<todo-id>.md` |
 | 云端备份 | 坚果云 WebDAV（标准 Basic Auth） |
 | 日志推送 | 原生 WebSocket（`loghub.js`，零额外依赖） |
+| 多端同步 | 原生 WebSocket 广播（`syncHub.js`，零额外依赖） |
 
 ## 快速开始
 
@@ -235,6 +237,14 @@ sudo systemctl restart personal-todo-vault
 
 直接访问 `/console` 也可获得独立的全屏日志控制台页面（功能相同）。
 
+### 多端实时同步
+
+多个浏览器标签页/设备打开同一页面时，任一页面增删改待办、分类、设置或笔记，服务端会通过独立的 WebSocket 通道（`syncHub.js`，`/sync/ws`）广播变更，其他页面自动重新拉取并刷新，**无需手动刷新**。
+
+- 广播只携带「数据已变更」信号，具体数据仍由页面重新 GET 拉取，逻辑简单可靠。
+- 断线后约 2 秒自动重连，服务器重启也能恢复同步。
+- 与待办数据接口一致，此通道不做鉴权。
+
 ### 日志访问口令
 
 默认本地调试不设口令。部署到局域网/服务器时，建议在 `.env` 中设置 `CONSOLE_TOKEN`，则打开 `#/logs` 或 `/console` 需要输入口令；未登录时 WebSocket 与状态接口均返回未授权。
@@ -399,6 +409,7 @@ TODO_BACKUP_INTERVAL_HOURS=24
 | POST | `/console/login` | 提交日志访问口令 |
 | GET | `/console/status` | 日志缓冲与近期是否报错的状态 |
 | WS | `/console/ws` | 实时日志 WebSocket 通道 |
+| WS | `/sync/ws` | 数据变更广播 WebSocket 通道（多端实时同步） |
 
 待办 API 使用 camelCase 字段，例如 `categoryId`、`createdAt`、`reminderEnabled`、`reminderTime`、`reminderMode`、`reminderWeekdays`、`reminderRepeatCount`、`creatorEmail`、`noteFile`。
 
@@ -409,8 +420,9 @@ personal-todo-vault/
 ├── appConfig.js       # 加密的本地配置读取、保存与脱敏输出
 ├── cloudBackup.js     # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js           # SMTP 邮件与测试邮件
-├── index.html         # 工作台式前端页面（导航 + 待办 + 运行日志）
+├── index.html         # 工作台式前端页面（导航 + 待办 + 运行日志 + 实时同步）
 ├── loghub.js          # 日志汇聚 + WebSocket 实时控制台
+├── syncHub.js         # 数据变更广播 WebSocket（多端实时同步）
 ├── server.js          # HTTP API、提醒与备份定时器（每日/间隔模式调度）
 ├── sqlite.js          # SQLite 初始化、迁移与原子保存
 ├── sql-wasm.*         # SQLite WASM 运行时
