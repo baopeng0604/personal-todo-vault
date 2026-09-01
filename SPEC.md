@@ -9,16 +9,27 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 ## 2. 功能范围
 
 - 待办的创建、编辑、完成、删除
+
 - 分类的创建、重命名、图标设置、删除与排序
+
 - 按分类筛选待办
+
 - 进度设置：整数 0–100；进度达到 100 时自动标记完成
+
 - Markdown 笔记的预览、编辑与保存
+
 - 明暗主题、响应式布局
+
 - 单次、每周指定星期和按次数重复的邮件提醒
+
 - 页面统一配置、保存和测试 SMTP 与坚果云 WebDAV
+
 - 数据库与 Markdown 笔记的云端备份：默认「每日备份」有变化才上传带日期的 gzip 快照并保留最近 10 份，可切换为按间隔的内容寻址增量备份
+
 - 工作台式多页面界面：侧边导航 + hash 路由，待办清单与运行日志互相切换
+
 - 运行日志控制台：原生 WebSocket 实时推送服务器输出，辅助判断错误；可选访问口令
+
 - Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像、生成 systemd 后台服务
 
 ## 3. 交互与视觉
@@ -28,12 +39,19 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 **Color Palette:**
 
 - Primary gradient: `#667eea` → `#764ba2`
+
 - Background: `#f8fafc`
+
 - Card: `#ffffff`
+
 - Text primary: `#1a202c`
+
 - Text secondary: `#718096`
+
 - Accent success: `#38ef7d`
+
 - Accent danger: `#ff6b6b`
+
 - Border: `#e2e8f0`
 
 **Responsive:** 桌面端居中布局；移动端使用全宽内容和 16px 左右内边距。
@@ -41,11 +59,17 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 ## 4. 技术架构
 
 - **Frontend:** 原生 HTML + CSS + JavaScript（工作台式多页面 + hash 路由），无前端框架
+
 - **Backend:** Node.js 原生 `http` 服务
+
 - **Database:** `sql.js`（SQLite WebAssembly）
+
 - **Email:** `nodemailer`
+
 - **Storage:** `todo.db`、`notes/<todo-id>.md`
+
 - **Optional backup:** 坚果云 WebDAV（每日带日期快照 / 按间隔增量备份，二选一）
+
 - **Realtime logs:** 原生 WebSocket（`loghub.js`，零额外依赖）
 
 默认监听 `127.0.0.1:8238`；设置 `HOST=0.0.0.0` 后才监听全部网卡。由于当前版本没有内置用户认证和多用户隔离，公开网络部署必须通过 VPN 或带身份验证的反向代理保护。
@@ -71,6 +95,7 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 通过 `webdav.backupMode` 选择一种备份模式；两种模式共用同一套「有变化才备份 + 带日期快照 + 保留最近 10 份」逻辑，仅触发调度不同：
 
 - **`daily`（默认，每日备份）**：每天在 `webdav.dailyBackupTime`（默认 `00:10`）触发一次。
+
 - **`interval`（按间隔备份）**：每 `webdav.intervalHours` 小时检测一次。
 
 触发后先计算数据库与全部笔记的 SHA-256 汇总并与本地 `backups/daily-state.json` 对比，无变化则跳过；有变化则把 `todo.db.gz` 与各笔记 `.md.gz` 上传到 `daily/<yyyy-MM-dd>/`（同一天多次变化会覆盖当天目录）。远端仅保留最近 10 个日期目录，更早的自动 `DELETE`。
@@ -84,20 +109,26 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 `loghub.js` 零侵入接管 `process.stdout.write`，把服务端所有 `console` 输出写入内存环形缓冲（默认最多 1000 条），并同时透传原 stdout（systemd journalctl / 终端照常可见）。
 
 - **WebSocket 推送**：手写原生 WebSocket 服务端，无第三方依赖。客户端连接 `/console/ws` 后先收到 `history`（历史缓冲），再收到增量 `line`；每 30 秒发送 ping 保活。
+
 - **状态接口**：`GET /console/status` 返回缓冲条数与近期是否含错误关键词（`error` / `错误` / `✗` / `fail`）。
+
 - **访问口令**：设置环境变量 `CONSOLE_TOKEN` 后，`/console`、`/console/status`、`/console/ws` 均需口令（Cookie 鉴权，`timingSafeEqual` 比较）；未设置时默认放行（本地调试）。
+
 - **前端**：工作台 `#/logs` 页内嵌日志视图，或独立访问 `/console` 全屏控制台；报错标红、警告标黄，断线每 2 秒自动重连。
 
 ### 4.6 Linux 部署脚本
 
-`deploy/install.sh` 面向 root 一键部署，重复运行即更新：
+部署拆分为三个可独立执行的步骤脚本（`deploy/step*.sh`），由 `deploy/install.sh` 作为一键入口依次调用；重复运行即更新：
 
-- **NodeJS 检测与安装**：要求主版本 ≥ 20；检测到过低或缺失时，优先从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`，树莓派等实测可用）下载与 CPU 架构匹配的二进制压缩包（自动检测 x64 / ARM64 / ARMv7，可用 `NODE_ARCH` 覆盖）解压到用户目录（默认 `~/.local/nodejs`），并写入 `~/.bashrc`，不污染系统自带的 Node。除 PATH 外还会探测 `~/.local/nodejs/bin`、`/usr/local/bin`、`/opt/node/bin` 等常见手动安装位置；解压后立即执行验证，架构不符会明确报错。
-- **npm 镜像**：自动设置 `registry=https://registry.npmmirror.com`。
-- **依赖与配置**：`npm ci` 安装依赖；首次生成 `.env`（复制 `.env.example`），可注入 `CONSOLE_TOKEN`。
-- **systemd 服务**：生成 `/etc/systemd/system/todo-vault.service`（`Restart=always`），`daemon-reload` 后 `enable` + `restart`。
+- **step1-node.sh — 检测并安装 NodeJS**：要求主版本 ≥ 20；检测到过低或缺失时，优先从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`，树莓派等实测可用）下载与 CPU 架构匹配的二进制压缩包（自动检测 x64 / ARM64 / ARMv7，可用 `NODE_ARCH` 覆盖）解压到用户目录（默认 `~/.local/nodejs`），并写入 `~/.bashrc`，不污染系统自带的 Node。除 PATH 外还会探测 `~/.local/nodejs`、`/usr/local/bin`、`/opt/node/bin` 等常见手动安装位置；解压后立即执行验证，架构不符会明确报错。公共逻辑封装在 `deploy/lib-node.sh`（`detect_arch` / `detect_node` / `install_node` / `ensure_node`），供三个步骤脚本 source 复用。
 
-`deploy/start.sh` 提供前台调试启动：检查 Node 版本，缺失或过低时提示先运行 `install.sh`，然后 `exec node server.js`。
+- **step2-mirror.sh — npm 镜像与依赖**：设置 `registry=https://registry.npmmirror.com`，执行 `npm ci`（有 lock 文件时）或 `npm install`。
+
+- **step3-service.sh — systemd 服务**：首次生成 `.env`（复制 `.env.example`，可注入 `CONSOLE_TOKEN`）；生成 `/etc/systemd/system/todo-vault.service`（`Restart=always`），`daemon-reload` 后 `enable` + `restart`，并检查服务与端口状态。
+
+`deploy/install.sh` 是一键入口：先获取/更新代码（git 仓库更新、指定仓库克隆或从当前项目复制），再依次调用 step1 → step2 → step3。
+
+`deploy/start.sh` 提供前台调试启动：检查 Node 版本，缺失或过低时提示先运行部署脚本，然后 `exec node server.js`。
 
 ## 5. 数据模型
 
@@ -134,31 +165,52 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 }
 ```
 
-后端数据库内部使用 snake_case 列名，但 API 对待办字段统一使用 camelCase。
+后端数据库内部使用 snake\_case 列名，但 API 对待办字段统一使用 camelCase。
 
 ## 6. API
 
 - `GET /api/categories`
+
 - `POST /api/categories`：`{ name, icon }`
+
 - `PATCH /api/categories/:id`：`{ name?, icon? }`
+
 - `DELETE /api/categories/:id`
+
 - `PATCH /api/categories/reorder`：`{ order: [categoryId, ...] }`
+
 - `GET /api/todos?categoryId=...`
+
 - `POST /api/todos`：`{ title, categoryId }`
+
 - `PATCH /api/todos/:id`：更新标题、分类、完成状态、进度或提醒
+
 - `DELETE /api/todos/:id`
+
 - `GET /api/todos/:id/note`
+
 - `PUT /api/todos/:id/note`：`{ content }`
+
 - `GET /api/settings`
+
 - `PUT /api/settings`：`{ email, webdav }`
+
 - `POST /api/settings/test-email`
+
 - `GET /api/backup/status`
+
 - `POST /api/backup/test`
+
 - `POST /api/backup/run`
+
 - `GET /api/icons`
+
 - `GET /console`：独立运行日志控制台页面
+
 - `POST /console/login`：提交日志访问口令（表单 `token`）
+
 - `GET /console/status`：日志缓冲与近期是否报错的状态
+
 - `WS /console/ws`：实时日志 WebSocket 通道（`history` + `line` 消息）
 
 提醒规则：`reminderMode` 可设为 `once`、`weekly` 或 `count`。星期使用 ISO 编号：1=周一，…，7=周日。`weekly`/`count` 至少选择一个星期；`count` 需要设置 1–1000 的重复次数。每条待办每天最多发送一次；已完成待办不会继续发送提醒。重新开启或修改规则会从第 1 次重新计数。
@@ -175,9 +227,13 @@ personal-todo-vault/
 ├── cloudBackup.js  # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js        # SMTP 邮件发送
 ├── deploy/
-│   ├── install.sh  # Linux 一键安装：NodeJS 检测/安装 + npm 镜像 + systemd
-│   ├── start.sh    # 前台启动脚本（调试用）
-│   ├── DEPLOY.md   # Linux 服务器部署指南（逐步操作）
+│   ├── install.sh     # 一键安装入口：依次执行 step1/2/3
+│   ├── step1-node.sh  # 分步①：检测并安装 NodeJS
+│   ├── step2-mirror.sh # 分步②：npm 镜像 + 依赖安装
+│   ├── step3-service.sh # 分步③：systemd 服务
+│   ├── lib-node.sh    # 部署公共函数库（架构检测、Node 检测/安装）
+│   ├── start.sh       # 前台启动脚本（调试用）
+│   ├── DEPLOY.md      # Linux 服务器部署指南（逐步操作）
 │   └── todo-vault.service  # systemd 服务模板（参考）
 ├── todo.db         # 运行时数据库，不提交
 ├── notes/          # 运行时 Markdown 笔记，不提交

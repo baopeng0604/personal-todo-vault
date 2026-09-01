@@ -28,7 +28,7 @@
 - SQLite 原子写入、本地滚动备份（默认保留最近 10 份）
 - 工作台式多页面界面：侧边导航 + hash 路由，待办清单与运行日志等页面互相切换
 - 运行日志控制台：通过 WebSocket 实时推送服务器输出，辅助排查错误（支持访问口令）
-- Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像并生成 systemd 后台服务
+- Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像并生成 systemd 后台服务；也可按 `deploy/step*.sh` 分步执行
 - 兼容从旧版 `data.json` 迁移到 SQLite
 
 ## 技术栈
@@ -107,6 +107,8 @@ HOST=0.0.0.0 PORT=8238 npm start
 cd /opt/todo-vault
 sudo bash deploy/install.sh
 ```
+
+> 一键脚本内部依次执行 `deploy/step1-node.sh` → `step2-mirror.sh` → `step3-service.sh`。如需**分步执行**（例如网络不稳时逐步调试、单独重跑某一步），直接运行对应 `deploy/step*.sh` 即可，详见 [deploy/DEPLOY.md](deploy/DEPLOY.md)。
 
 可选环境变量：
 
@@ -413,9 +415,13 @@ personal-todo-vault/
 ├── sqlite.js          # SQLite 初始化、迁移与原子保存
 ├── sql-wasm.*         # SQLite WASM 运行时
 ├── deploy/
-│   ├── install.sh     # Linux 一键安装：NodeJS 检测/安装 + npm 镜像 + systemd
-│   ├── start.sh       # 前台启动脚本（调试用）
-│   ├── DEPLOY.md      # Linux 服务器部署指南（逐步操作）
+│   ├── install.sh       # 一键安装入口：依次执行三个 step 脚本
+│   ├── step1-node.sh    # 分步①：检测并安装 NodeJS
+│   ├── step2-mirror.sh  # 分步②：设置 npm 镜像并安装依赖
+│   ├── step3-service.sh # 分步③：systemd 服务加载运行
+│   ├── lib-node.sh      # 分步脚本共用的函数库（架构检测、Node 检测/安装）
+│   ├── start.sh         # 前台启动脚本（调试用）
+│   ├── DEPLOY.md        # Linux 服务器部署指南（逐步操作）
 │   └── todo-vault.service  # systemd 服务模板（参考）
 ├── notes/.gitkeep     # 空笔记目录占位；真实笔记不提交
 ├── .env.example       # 不含秘密的环境变量示例

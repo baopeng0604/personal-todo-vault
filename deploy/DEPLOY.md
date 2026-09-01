@@ -55,20 +55,41 @@ tar -xzf /opt/todo-vault.tar.gz -C /opt/todo-vault
 rm /opt/todo-vault.tar.gz
 ```
 
-## 三、运行一键安装脚本
+## 三、安装部署（一键 或 分步）
+
+提供两种执行方式，效果相同：**一键脚本**适合完整安装；**分步脚本**适合网络不稳、需单独调试或只想重跑某一步的场景。
+
+### 方式 A：一键安装
 
 ```bash
 cd /opt/todo-vault
 sudo bash deploy/install.sh
 ```
 
-脚本自动完成：
+脚本依次完成三步：检测安装 NodeJS → 设置 npm 镜像并装依赖 → 注册 systemd 服务并启动。
 
-1. **NodeJS 检测与安装**：要求主版本 ≥ 20；缺失或过低时，优先从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`）下载与 CPU 架构匹配的 Linux 二进制压缩包（自动检测 x64 / ARM64 / ARMv7），解压到用户目录（默认 `~/.local/nodejs`），不污染系统自带的 Node。已手动安装的 Node（位于 `~/.local/nodejs/bin` 等常见路径）会被自动识别复用。
-2. **npm 国内镜像**：自动设置 `registry=https://registry.npmmirror.com`。
-3. **依赖安装**：执行 `npm ci`（有 lock 文件时）或 `npm install`。
-4. **生成** **`.env`**：首次运行复制 `.env.example` 为 `.env`。
-5. **注册 systemd 服务**：生成 `/etc/systemd/system/todo-vault.service`（崩溃自动重启、开机自启），并立即启动。
+### 方式 B：分步执行（推荐，可单独重跑）
+
+```bash
+cd /opt/todo-vault
+
+# 第一步：检测并安装 NodeJS（要求 >= 20，缺失时自动从国内镜像安装）
+sudo bash deploy/step1-node.sh
+
+# 第二步：设置 npm 国内镜像，并安装依赖（npm ci）
+sudo bash deploy/step2-mirror.sh
+
+# 第三步：生成 systemd 服务并启动（崩溃自动重启、开机自启）
+sudo bash deploy/step3-service.sh
+```
+
+某一步失败只需重跑该步，不必从头再来；每步都可重复运行。
+
+#### 各步骤说明
+
+1. **step1-node.sh — 检测并安装 NodeJS**：自动检测 CPU 架构（x64 / ARM64 / ARMv7，可用 `NODE_ARCH` 覆盖）；优先复用 PATH 与常见路径（`~/.local/nodejs`、`/usr/local/bin`、`/opt/node/bin`）中已装好的 Node。缺失或版本 < 20 时，从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`）下载匹配架构的二进制压缩包解压到 `~/.local/nodejs`（不污染系统），并把 Node 写入 `~/.bashrc`。
+2. **step2-mirror.sh — npm 镜像 + 依赖**：设置 `registry=https://registry.npmmirror.com`，进入项目目录执行 `npm ci`（无 lock 文件时用 `npm install`）。
+3. **step3-service.sh — systemd 服务**：首次运行生成 `.env`（复制 `.env.example`，可注入 `CONSOLE_TOKEN`）；写入 `/etc/systemd/system/todo-vault.service`（`Restart=always`、开机自启），`daemon-reload`、`enable`、`restart` 后检查服务与端口状态。
 
 安装完成后终端提示：
 
