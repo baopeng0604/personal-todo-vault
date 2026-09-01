@@ -17,6 +17,9 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 - 单次、每周指定星期和按次数重复的邮件提醒
 - 页面统一配置、保存和测试 SMTP 与坚果云 WebDAV
 - 数据库与 Markdown 笔记的云端备份：默认「每日备份」有变化才上传带日期的 gzip 快照并保留最近 10 份，可切换为按间隔的内容寻址增量备份
+- 工作台式多页面界面：侧边导航 + hash 路由，待办清单与运行日志互相切换
+- 运行日志控制台：原生 WebSocket 实时推送服务器输出，辅助判断错误；可选访问口令
+- Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像、生成 systemd 后台服务
 
 ## 3. 交互与视觉
 
@@ -37,12 +40,13 @@ Personal Todo Vault 是一个面向个人使用和私有部署的待办管理服
 
 ## 4. 技术架构
 
-- **Frontend:** 原生 HTML + CSS + JavaScript，无前端框架
+- **Frontend:** 原生 HTML + CSS + JavaScript（工作台式多页面 + hash 路由），无前端框架
 - **Backend:** Node.js 原生 `http` 服务
 - **Database:** `sql.js`（SQLite WebAssembly）
 - **Email:** `nodemailer`
 - **Storage:** `todo.db`、`notes/<todo-id>.md`
 - **Optional backup:** 坚果云 WebDAV（每日带日期快照 / 按间隔增量备份，二选一）
+- **Realtime logs:** 原生 WebSocket（`loghub.js`，零额外依赖）
 
 默认监听 `127.0.0.1:8238`；设置 `HOST=0.0.0.0` 后才监听全部网卡。由于当前版本没有内置用户认证和多用户隔离，公开网络部署必须通过 VPN 或带身份验证的反向代理保护。
 
@@ -74,6 +78,26 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 手动「立即备份」（`/api/backup/run`）仍使用内容寻址增量上传（`objects/` + `snapshots/` + `latest.json`），不参与自动调度。
 
 两种模式均使用 WebDAV Basic Auth 与 gzip 压缩，密码不随备份上传。
+
+### 4.5 运行日志控制台
+
+`loghub.js` 零侵入接管 `process.stdout.write`，把服务端所有 `console` 输出写入内存环形缓冲（默认最多 1000 条），并同时透传原 stdout（systemd journalctl / 终端照常可见）。
+
+- **WebSocket 推送**：手写原生 WebSocket 服务端，无第三方依赖。客户端连接 `/console/ws` 后先收到 `history`（历史缓冲），再收到增量 `line`；每 30 秒发送 ping 保活。
+- **状态接口**：`GET /console/status` 返回缓冲条数与近期是否含错误关键词（`error` / `错误` / `✗` / `fail`）。
+- **访问口令**：设置环境变量 `CONSOLE_TOKEN` 后，`/console`、`/console/status`、`/console/ws` 均需口令（Cookie 鉴权，`timingSafeEqual` 比较）；未设置时默认放行（本地调试）。
+- **前端**：工作台 `#/logs` 页内嵌日志视图，或独立访问 `/console` 全屏控制台；报错标红、警告标黄，断线每 2 秒自动重连。
+
+### 4.6 Linux 部署脚本
+
+`deploy/install.sh` 面向 root 一键部署，重复运行即更新：
+
+- **NodeJS 检测与安装**：要求主版本 ≥ 20；检测到过低或缺失时，优先从国内镜像（默认 `https://npmmirror.com/mirrors/node`）下载 `linux-x64` 二进制压缩包解压到用户目录（默认 `~/.local/nodejs`），并写入 `~/.bashrc`，不污染系统自带的 Node。
+- **npm 镜像**：自动设置 `registry=https://registry.npmmirror.com`。
+- **依赖与配置**：`npm ci` 安装依赖；首次生成 `.env`（复制 `.env.example`），可注入 `CONSOLE_TOKEN`。
+- **systemd 服务**：生成 `/etc/systemd/system/todo-vault.service`（`Restart=always`），`daemon-reload` 后 `enable` + `restart`。
+
+`deploy/start.sh` 提供前台调试启动：检查 Node 版本，缺失或过低时提示先运行 `install.sh`，然后 `exec node server.js`。
 
 ## 5. 数据模型
 
@@ -132,6 +156,10 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 - `POST /api/backup/test`
 - `POST /api/backup/run`
 - `GET /api/icons`
+- `GET /console`：独立运行日志控制台页面
+- `POST /console/login`：提交日志访问口令（表单 `token`）
+- `GET /console/status`：日志缓冲与近期是否报错的状态
+- `WS /console/ws`：实时日志 WebSocket 通道（`history` + `line` 消息）
 
 提醒规则：`reminderMode` 可设为 `once`、`weekly` 或 `count`。星期使用 ISO 编号：1=周一，…，7=周日。`weekly`/`count` 至少选择一个星期；`count` 需要设置 1–1000 的重复次数。每条待办每天最多发送一次；已完成待办不会继续发送提醒。重新开启或修改规则会从第 1 次重新计数。
 
@@ -139,12 +167,18 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 
 ```text
 personal-todo-vault/
-├── server.js       # HTTP 服务、API、定时提醒和自动备份
+├── server.js       # HTTP 服务、API、定时提醒、自动备份与 WebSocket 接入
 ├── sqlite.js       # SQLite 初始化、迁移与原子保存
-├── index.html      # 主页面与 Markdown 编辑/预览
+├── index.html      # 工作台式前端：导航 + 待办页 + 运行日志页
+├── loghub.js       # 日志汇聚、环形缓冲、WebSocket 实时控制台
 ├── appConfig.js    # 加密配置读写与脱敏输出
 ├── cloudBackup.js  # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js        # SMTP 邮件发送
+├── deploy/
+│   ├── install.sh  # Linux 一键安装：NodeJS 检测/安装 + npm 镜像 + systemd
+│   ├── start.sh    # 前台启动脚本（调试用）
+│   ├── DEPLOY.md   # Linux 服务器部署指南（逐步操作）
+│   └── todo-vault.service  # systemd 服务模板（参考）
 ├── todo.db         # 运行时数据库，不提交
 ├── notes/          # 运行时 Markdown 笔记，不提交
 ├── backups/        # 自动生成的数据库备份，不提交

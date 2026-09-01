@@ -26,18 +26,22 @@
 - 配置中心：SMTP、收件人、坚果云 WebDAV、备份模式与每日备份时间，均可保存和测试
 - 坚果云 WebDAV 备份：默认「每日备份」或「按间隔备份」均有变化才上传带日期的 gzip 快照，保留最近 10 份
 - SQLite 原子写入、本地滚动备份（默认保留最近 10 份）
+- 工作台式多页面界面：侧边导航 + hash 路由，待办清单与运行日志等页面互相切换
+- 运行日志控制台：通过 WebSocket 实时推送服务器输出，辅助排查错误（支持访问口令）
+- Linux 一键部署：自动检测/安装 NodeJS（国内镜像、解压式安装不影响系统）、配置 npm 镜像并生成 systemd 后台服务
 - 兼容从旧版 `data.json` 迁移到 SQLite
 
 ## 技术栈
 
 | 层级 | 实现 |
 |---|---|
-| 前端 | 单文件原生 HTML、CSS、JavaScript |
+| 前端 | 单文件原生 HTML、CSS、JavaScript（工作台式多页面 + hash 路由） |
 | 服务端 | Node.js 原生 `http` 模块 |
 | 数据库 | `sql.js`（SQLite WebAssembly） |
 | 邮件 | `nodemailer` |
 | 笔记 | 本地 `notes/<todo-id>.md` |
 | 云端备份 | 坚果云 WebDAV（标准 Basic Auth） |
+| 日志推送 | 原生 WebSocket（`loghub.js`，零额外依赖） |
 
 ## 快速开始
 
@@ -88,7 +92,52 @@ HOST=0.0.0.0 PORT=8238 npm start
 
 ## 部署
 
-### 方式一：直接运行
+> 完整的分步操作见 [deploy/DEPLOY.md](deploy/DEPLOY.md)，以下为概要。
+
+### 方式一：Linux 一键安装脚本（推荐）
+
+适合在 Linux 服务器上快速部署并以后台服务方式常驻运行。脚本会自动：
+
+1. 检测 NodeJS 版本（要求 ≥ 20）；缺失或过低时，优先通过**国内镜像下载二进制压缩包**解压到用户目录（默认 `~/.local/nodejs`），不污染系统自带的 Node。
+2. 自动配置 npm 国内镜像源（默认 `https://registry.npmmirror.com`）。
+3. 安装依赖、生成 `.env`、写入 systemd 服务并设置**开机自启 + 崩溃自动重启**。
+
+```bash
+# 把项目放到 /opt/todo-vault（或用仓库 URL 让脚本自动克隆）
+cd /opt/todo-vault
+sudo bash deploy/install.sh
+```
+
+可选环境变量：
+
+```bash
+sudo TODO_VAULT_DIR=/opt/todo-vault TODO_VAULT_USER=root \
+     CONSOLE_TOKEN=your-log-token bash deploy/install.sh
+```
+
+- `TODO_VAULT_DIR`：安装目录（默认 `/opt/todo-vault`）
+- `TODO_VAULT_USER`：服务运行用户（默认 `root`）
+- `CONSOLE_TOKEN`：运行日志控制台访问口令（写入 `.env`）
+- `NODE_MAJOR` / `NODE_VERSION`：指定要安装的 Node 主版本或完整版本
+- `NODE_MIRROR` / `NPM_REGISTRY`：自定义 Node 与 npm 镜像
+
+重复运行脚本 = 更新代码并重启服务。
+
+前台调试（日志直接打印到当前终端）：
+
+```bash
+bash deploy/start.sh
+```
+
+常用运维命令：
+
+```bash
+sudo systemctl status todo-vault       # 查看状态
+sudo journalctl -u todo-vault -f       # 实时日志
+sudo systemctl restart todo-vault      # 重启
+```
+
+### 方式二：直接运行
 
 适合开发、个人电脑或已有进程守护工具的环境：
 
@@ -98,7 +147,9 @@ npm ci
 HOST=0.0.0.0 PORT=8238 npm start
 ```
 
-### 方式二：systemd（Linux 常驻服务）
+### 方式三：手动配置 systemd（可选）
+
+> 一键安装脚本（方式一）会自动完成下述步骤；这里仅供不适用脚本或想手动管理的场景参考。
 
 1. 将项目放到专用目录，并安装依赖：
 
@@ -161,6 +212,35 @@ sudo systemctl restart personal-todo-vault
 ```
 
 运行数据、加密配置和本地备份目录已经在 `.gitignore` 中，不会被 `git pull` 覆盖。
+
+## 工作台与运行日志
+
+应用采用**工作台式多页面**结构：左侧导航 + hash 路由，页面在浏览器内切换、不刷新。当前包含两个页面：
+
+| 页面 | 路由 | 说明 |
+|---|---|---|
+| 待办清单 | `#/todos` | 原有待办主页面（默认页） |
+| 运行日志 | `#/logs` | 实时查看服务器输出，辅助判断是否有错误 |
+
+### 运行日志页
+
+日志页通过**原生 WebSocket**（`loghub.js`，零额外依赖）实时接收服务器端 `console` 输出：
+
+- 连接后先推送最近最多 1000 条历史日志，之后增量实时追加。
+- 报错（`error` / `错误` / `✗` / `fail`）自动标红，警告标黄。
+- 顶部状态灯实时反映是否「运行正常」或「近期有报错」；支持暂停/恢复自动滚动。
+- 断开后每 2 秒自动重连。
+
+直接访问 `/console` 也可获得独立的全屏日志控制台页面（功能相同）。
+
+### 日志访问口令
+
+默认本地调试不设口令。部署到局域网/服务器时，建议在 `.env` 中设置 `CONSOLE_TOKEN`，则打开 `#/logs` 或 `/console` 需要输入口令；未登录时 WebSocket 与状态接口均返回未授权。
+
+```bash
+# .env
+CONSOLE_TOKEN=your-secret-token
+```
 
 ## 配置中心
 
@@ -261,6 +341,9 @@ todo-app-backups/
 HOST=127.0.0.1
 PORT=8238
 
+# 运行日志控制台访问口令（可选；设置后 #/logs 与 /console 需口令）
+# CONSOLE_TOKEN=
+
 # SMTP
 TODO_SMTP_HOST=smtp.example.com
 TODO_SMTP_PORT=465
@@ -310,6 +393,10 @@ TODO_BACKUP_INTERVAL_HOURS=24
 | POST | `/api/backup/test` | 测试坚果云 WebDAV 配置 |
 | POST | `/api/backup/run` | 立即上传云端备份 |
 | GET | `/api/icons` | 获取预设分类图标 |
+| GET | `/console` | 独立运行日志控制台页面 |
+| POST | `/console/login` | 提交日志访问口令 |
+| GET | `/console/status` | 日志缓冲与近期是否报错的状态 |
+| WS | `/console/ws` | 实时日志 WebSocket 通道 |
 
 待办 API 使用 camelCase 字段，例如 `categoryId`、`createdAt`、`reminderEnabled`、`reminderTime`、`reminderMode`、`reminderWeekdays`、`reminderRepeatCount`、`creatorEmail`、`noteFile`。
 
@@ -320,10 +407,16 @@ personal-todo-vault/
 ├── appConfig.js       # 加密的本地配置读取、保存与脱敏输出
 ├── cloudBackup.js     # WebDAV 备份：每日带日期快照 / 内容寻址增量备份
 ├── email.js           # SMTP 邮件与测试邮件
-├── index.html         # 前端页面（原生 HTML/CSS/JS）
+├── index.html         # 工作台式前端页面（导航 + 待办 + 运行日志）
+├── loghub.js          # 日志汇聚 + WebSocket 实时控制台
 ├── server.js          # HTTP API、提醒与备份定时器（每日/间隔模式调度）
 ├── sqlite.js          # SQLite 初始化、迁移与原子保存
 ├── sql-wasm.*         # SQLite WASM 运行时
+├── deploy/
+│   ├── install.sh     # Linux 一键安装：NodeJS 检测/安装 + npm 镜像 + systemd
+│   ├── start.sh       # 前台启动脚本（调试用）
+│   ├── DEPLOY.md      # Linux 服务器部署指南（逐步操作）
+│   └── todo-vault.service  # systemd 服务模板（参考）
 ├── notes/.gitkeep     # 空笔记目录占位；真实笔记不提交
 ├── .env.example       # 不含秘密的环境变量示例
 ├── agents.md          # 仓库约定：代码变动须同步更新相关文档

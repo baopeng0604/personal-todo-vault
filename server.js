@@ -34,6 +34,7 @@ const { initDB, closeDB, saveDB,
 const { sendEmail, sendTestEmail } = require('./email.js');
 const { getFullConfig, saveAppConfig, publicAppConfig, isEmailConfigured, migrateStoredConfigSecrets } = require('./appConfig.js');
 const { getBackupConfig, publicBackupStatus, testBackupConfig, uploadBackup, uploadDailyBackup } = require('./cloudBackup.js');
+const loghub = require('./loghub.js');
 
 // ── MIME 类型 ────────────────────────────────────────────
 const MIME = {
@@ -285,6 +286,10 @@ const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
   const pathname = parsed.pathname;
   const jsonResR = (data, code = 200) => jsonRes(res, data, code);
+
+  // ── 运行日志控制台（/console 等）────────────────────
+  if (loghub.handleHttp(pathname, req, res)) return;
+
   const withBody = async (callback, maxBytes = MAX_JSON_BODY_BYTES) => {
     let body = '';
     let bytes = 0;
@@ -748,7 +753,18 @@ async function bootstrap() {
 }
 
 bootstrap();
+loghub.install();
 server.listen(PORT, HOST, () => console.log(`TODO App → http://${HOST}:${PORT}`));
+
+// ── WebSocket 升级（运行日志实时推送）──────────────────
+server.on('upgrade', (req, socket) => {
+  const pathname = url.parse(req.url).pathname;
+  if (pathname === '/console/ws') {
+    loghub.attachWebSocket(req, socket);
+  } else {
+    socket.destroy();
+  }
+});
 
 process.on('SIGTERM', () => { stopBackupScheduler(); closeDB(); process.exit(0); });
 process.on('SIGINT',  () => { stopBackupScheduler(); closeDB(); process.exit(0); });
