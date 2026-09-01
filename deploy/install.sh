@@ -34,7 +34,6 @@ NODE_MAJOR="${NODE_MAJOR:-22}"
 NODE_VERSION="${NODE_VERSION:-}"
 NODE_MIRROR="${NODE_MIRROR:-https://npmmirror.com/mirrors/node}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
-NODE_ARCH="linux-x64"
 NODE_INSTALL_DIR="${NODE_INSTALL_DIR:-$HOME/.local/nodejs}"
 CONSOLE_TOKEN="${CONSOLE_TOKEN:-}"
 
@@ -47,6 +46,14 @@ die()  { echo -e "\033[1;31m[TodoVault]\033[0m $*" >&2; exit 1; }
 
 # ── 0. 权限检查 ────────────────────────────────────────────────
 [ "$(id -u)" -eq 0 ] || die "请以 root 运行：sudo bash deploy/install.sh"
+
+# 自动检测 CPU 架构（x64 / ARM64 / ARMv7 均支持；可用 NODE_ARCH 手动覆盖）
+case "${NODE_ARCH:-$(uname -m)}" in
+  linux-x64|x86_64|amd64)      NODE_ARCH="linux-x64" ;;
+  linux-arm64|aarch64|arm64)   NODE_ARCH="linux-arm64" ;;
+  linux-armv7l|armv7l|armhf|arm) NODE_ARCH="linux-armv7l" ;;
+  *) die "不支持的 CPU 架构: ${NODE_ARCH:-$(uname -m)}（可通过 NODE_ARCH 指定，如 linux-arm64）" ;;
+esac
 
 # ── 1. 依赖检查 ────────────────────────────────────────────────
 for cmd in curl tar; do
