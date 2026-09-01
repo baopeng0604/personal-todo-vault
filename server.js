@@ -7,6 +7,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const os = require('os');
 
 const PORT = Number(process.env.PORT) || 8238;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -754,7 +755,23 @@ async function bootstrap() {
 
 bootstrap();
 loghub.install();
-server.listen(PORT, HOST, () => console.log(`TODO App → http://${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => {
+  const lines = [`TODO App → 已启动（PID ${process.pid}）`];
+  if (HOST === '0.0.0.0' || HOST === '::' || HOST === '::0') {
+    // 绑定所有网卡：列出本机所有非内网回环的 IPv4 地址，方便局域网访问
+    const ips = new Set();
+    for (const addrs of Object.values(os.networkInterfaces())) {
+      for (const a of addrs || []) {
+        if (!a.internal && String(a.family).startsWith('IPv4')) ips.add(a.address);
+      }
+    }
+    for (const ip of ips) lines.push(`  局域网:   http://${ip}:${PORT}`);
+    lines.push(`  本机:     http://127.0.0.1:${PORT}`);
+  } else {
+    lines.push(`  本机:     http://${HOST}:${PORT}`);
+  }
+  console.log(lines.join('\n'));
+});
 
 // ── WebSocket 升级（运行日志实时推送）──────────────────
 server.on('upgrade', (req, socket) => {

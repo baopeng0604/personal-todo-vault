@@ -64,7 +64,7 @@ sudo bash deploy/install.sh
 
 脚本自动完成：
 
-1. **NodeJS 检测与安装**：要求主版本 ≥ 20；缺失或过低时，优先从国内镜像（默认 `https://npmmirror.com/mirrors/node`）下载 Linux 二进制压缩包，解压到用户目录（默认 `~/.local/nodejs`），不污染系统自带的 Node。
+1. **NodeJS 检测与安装**：要求主版本 ≥ 20；缺失或过低时，优先从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`）下载与 CPU 架构匹配的 Linux 二进制压缩包（自动检测 x64 / ARM64 / ARMv7），解压到用户目录（默认 `~/.local/nodejs`），不污染系统自带的 Node。已手动安装的 Node（位于 `~/.local/nodejs/bin` 等常见路径）会被自动识别复用。
 2. **npm 国内镜像**：自动设置 `registry=https://registry.npmmirror.com`。
 3. **依赖安装**：执行 `npm ci`（有 lock 文件时）或 `npm install`。
 4. **生成** **`.env`**：首次运行复制 `.env.example` 为 `.env`。
