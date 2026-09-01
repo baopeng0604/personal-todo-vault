@@ -17,7 +17,7 @@
 #   TODO_VAULT_REPO    仓库地址；目录不存在且设置了它时用 git clone
 #   NODE_MAJOR         Node 主版本（默认 22，即当前 LTS）
 #   NODE_VERSION       指定完整版本（如 v22.14.0）；留空自动探测
-#   NODE_MIRROR        Node 二进制镜像（默认 npmmirror）
+#   NODE_MIRROR        Node 二进制镜像（默认 registry.npmmirror.com，树莓派等实测可用）
 #   NPM_REGISTRY       npm 镜像源（默认 npmmirror）
 #   CONSOLE_TOKEN      日志控制台访问口令（可选，写入 .env）
 #
@@ -32,7 +32,7 @@ REPO_URL="${TODO_VAULT_REPO:-}"
 REQUIRED_NODE_MAJOR=20
 NODE_MAJOR="${NODE_MAJOR:-22}"
 NODE_VERSION="${NODE_VERSION:-}"
-NODE_MIRROR="${NODE_MIRROR:-https://npmmirror.com/mirrors/node}"
+NODE_MIRROR="${NODE_MIRROR:-https://registry.npmmirror.com/-/binary/node}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 NODE_INSTALL_DIR="${NODE_INSTALL_DIR:-$HOME/.local/nodejs}"
 CONSOLE_TOKEN="${CONSOLE_TOKEN:-}"
@@ -84,19 +84,36 @@ cd "$APP_DIR"
 
 # ── 3. NodeJS 检测与安装 ───────────────────────────────────────
 detect_node() {
+    local candidates=()
+    # 1. PATH 中的 node
     if command -v node >/dev/null 2>&1; then
+        candidates+=("$(command -v node)")
+    fi
+    # 2. 常见手动安装路径（含默认解压目录 ~/.local/nodejs）
+    candidates+=(
+        "$NODE_INSTALL_DIR/bin/node"
+        "$HOME/.local/nodejs/bin/node"
+        "/usr/local/bin/node"
+        "/opt/node/bin/node"
+    )
+    for bin in "${candidates[@]}"; do
+        [ -x "$bin" ] || continue
         local v major
-        v="$(node -v 2>/dev/null | sed 's/^v//')"
+        if ! v="$("$bin" -v 2>/dev/null)"; then
+            warn "发现 $bin 但无法执行（可能架构不匹配：系统为 $(uname -m)，该包非本机架构），已忽略"
+            continue
+        fi
+        v="${v#v}"
+        [ -n "$v" ] || continue
         major="${v%%.*}"
         if [ "${major:-0}" -ge "$REQUIRED_NODE_MAJOR" ]; then
-            log "检测到 NodeJS v$v（>= $REQUIRED_NODE_MAJOR），直接复用"
-            NODE_BIN="$(command -v node)"
+            log "检测到 NodeJS v$v（$bin，>= $REQUIRED_NODE_MAJOR），直接复用"
+            NODE_BIN="$bin"
             return 0
         fi
-        warn "NodeJS v$v 低于要求的 $REQUIRED_NODE_MAJOR，将自动安装新版本"
-    else
-        log "未检测到 NodeJS，开始自动安装（国内镜像，解压到 $NODE_INSTALL_DIR，不影响系统）"
-    fi
+        warn "NodeJS v$v（$bin）低于要求的 $REQUIRED_NODE_MAJOR，将自动安装新版本"
+    done
+    log "未检测到 NodeJS，开始自动安装（国内镜像，解压到 $NODE_INSTALL_DIR，不影响系统）"
     return 1
 }
 
@@ -104,8 +121,10 @@ install_node() {
     if [ -z "$NODE_VERSION" ]; then
         log "探测镜像 $NODE_MIRROR 的最新 v$NODE_MAJOR 版本 ..."
         local listing
-        listing="$(curl -fsSL --retry 3 "$NODE_MIRROR/latest-v${NODE_MAJOR}.x/" || die "无法访问 Node 镜像：$NODE_MIRROR")"
-        NODE_VERSION="$(echo "$listing" | grep -oE "node-v${NODE_MAJOR}\.[0-9]+\.[0-9]+-${NODE_ARCH}\.tar\.xz" | head -n1 | sed -E "s/node-(v[0-9.]+)-${NODE_ARCH}\.tar\.xz/\1/")"
+        if ! listing="$(curl -fsSL --connect-timeout 10 --max-time 25 --retry 2 --retry-delay 2 "$NODE_MIRROR/latest-v${NODE_MAJOR}.x/" 2>/dev/null)"; then
+            die "无法访问 Node 镜像：$NODE_MIRROR（网络不通或镜像被墙；可设置 NODE_MIRROR 换源，或设置 NODE_VERSION 跳过探测）"
+        fi
+        NODE_VERSION="$(echo "$listing" | grep -oE "node-v${NODE_MAJOR}\.[0-9]+\.[0-9]+-${NODE_ARCH}\.tar\.xz" | head -n1 | sed -E "s/node-(v[0-9.]+)-${NODE_ARCH}\.tar\.xz/\1/" || true)"
         [ -n "$NODE_VERSION" ] || die "未能从镜像解析出 Node 版本（可设置 NODE_VERSION 手动指定）"
     fi
     NODE_VERSION="${NODE_VERSION#v}"  # 去掉可能的 v 前缀
@@ -113,7 +132,7 @@ install_node() {
     local tarball="node-v${NODE_VERSION}-${NODE_ARCH}.tar.xz"
     local url="$NODE_MIRROR/v${NODE_VERSION}/$tarball"
     log "下载 $url ..."
-    curl -fL --retry 3 -o "/tmp/$tarball" "$url" || die "下载失败（可尝试 NODE_MIRROR=https://nodejs.org/dist）"
+    curl -fL --connect-timeout 15 --retry 3 --retry-delay 2 -o "/tmp/$tarball" "$url" || die "下载失败（可尝试 NODE_MIRROR=https://nodejs.org/dist）"
 
     log "解压到 $NODE_INSTALL_DIR ..."
     mkdir -p "$NODE_INSTALL_DIR"
@@ -122,6 +141,9 @@ install_node() {
 
     NODE_BIN="$NODE_INSTALL_DIR/bin/node"
     [ -x "$NODE_BIN" ] || die "Node 安装失败：$NODE_BIN 不存在"
+    if ! v="$("$NODE_BIN" -v 2>/dev/null)"; then
+        die "Node 二进制无法执行：当前系统架构 $(uname -m) 与 ${NODE_ARCH} 包不匹配（例如 32 位系统误装 arm64 包）。请删除 $NODE_INSTALL_DIR 后重试，或用 NODE_ARCH 指定正确架构"
+    fi
 
     # 提示用户把 Node 加入 PATH（当前 shell 立即生效）
     export PATH="$NODE_INSTALL_DIR/bin:$PATH"

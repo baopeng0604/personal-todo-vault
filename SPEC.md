@@ -92,7 +92,7 @@ Markdown 预览会先转义文本，再应用有限的格式化规则；链接�
 
 `deploy/install.sh` 面向 root 一键部署，重复运行即更新：
 
-- **NodeJS 检测与安装**：要求主版本 ≥ 20；检测到过低或缺失时，优先从国内镜像（默认 `https://npmmirror.com/mirrors/node`）下载与 CPU 架构匹配的二进制压缩包（自动检测 x64 / ARM64 / ARMv7，可用 `NODE_ARCH` 覆盖）解压到用户目录（默认 `~/.local/nodejs`），并写入 `~/.bashrc`，不污染系统自带的 Node。
+- **NodeJS 检测与安装**：要求主版本 ≥ 20；检测到过低或缺失时，优先从国内镜像（默认 `https://registry.npmmirror.com/-/binary/node`，树莓派等实测可用）下载与 CPU 架构匹配的二进制压缩包（自动检测 x64 / ARM64 / ARMv7，可用 `NODE_ARCH` 覆盖）解压到用户目录（默认 `~/.local/nodejs`），并写入 `~/.bashrc`，不污染系统自带的 Node。除 PATH 外还会探测 `~/.local/nodejs/bin`、`/usr/local/bin`、`/opt/node/bin` 等常见手动安装位置；解压后立即执行验证，架构不符会明确报错。
 - **npm 镜像**：自动设置 `registry=https://registry.npmmirror.com`。
 - **依赖与配置**：`npm ci` 安装依赖；首次生成 `.env`（复制 `.env.example`），可注入 `CONSOLE_TOKEN`。
 - **systemd 服务**：生成 `/etc/systemd/system/todo-vault.service`（`Restart=always`），`daemon-reload` 后 `enable` + `restart`。
